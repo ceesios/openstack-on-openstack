@@ -1,5 +1,6 @@
 ## Run as
-## TF_STATE=./tf_vmware/terraform.tfstate; ansible-playbook os_lab.yml
+## TF_STATE=./tf_vmware/terraform.tfstate; ansible-playbook os_lab.yml --extra-vars "firstrun=true" 
+## When not using a vault add: "--ask-vault-pass --ask-become-pass"
 
 
 ---
@@ -31,6 +32,9 @@
 ####################
 ## Control nodes
 - hosts: control
+  become: yes
+#  become_pass: "{{ my_sudo_pass }}"
+
   tasks:
   - name: add-apt-repository
     shell: add-apt-repository cloud-archive:queens; apt update; apt dist-upgrade -y
@@ -41,17 +45,19 @@
   #    repo: cloud-archive:queens
 
   - name: ensure certain packages are installed
-    apt:  pkg={{ item }} state=present update_cache=yes
-    with_items:
-      - software-properties-common
-      - python-openstackclient 
-      - python-pymysql
-      - python-memcache
-      - memcached
-      - etcd
-      - keystone
-      - apache2
-      - libapache2-mod-wsgi
+    apt:
+      pkg:
+        - software-properties-common
+        - python-openstackclient 
+        - python-pymysql
+        - python-memcache
+        - memcached
+        - etcd
+        - keystone
+        - apache2
+        - libapache2-mod-wsgi
+      state: present
+      update_cache: yes
 
 ## MySQL
   - name: ensure certain packages are installed
