@@ -1,0 +1,149 @@
+## Run as
+## TF_STATE=./tf_vmware/terraform.tfstate; ansible-playbook os_lab.yml
+
+
+---
+
+# - hosts: localhost
+#   tasks:
+#   - include_vars: .vault.yml
+
+## Servers uitrollen
+## Mag uit staan omdat we uitrollen met TF
+#   roles:
+#     - vmware-guest
+
+# - hosts: localhost
+#   tasks:
+#   - debug: 'var=groups'
+
+
+
+## install python 2
+- hosts: all
+  gather_facts: False
+
+  tasks:
+  - name: install python 2
+    raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+    when: firstrun is defined
+
+####################
+## Control nodes
+- hosts: control
+  tasks:
+  - name: add-apt-repository
+    shell: add-apt-repository cloud-archive:queens; apt update; apt dist-upgrade -y
+    when: firstrun is defined
+
+  #- name: add-apt-repository queens
+  #  apt_repository:
+  #    repo: cloud-archive:queens
+
+  - name: ensure certain packages are installed
+    apt:  pkg={{ item }} state=present update_cache=yes
+    with_items:
+      - software-properties-common
+      - python-openstackclient 
+      - python-pymysql
+      - python-memcache
+      - memcached
+      - etcd
+      - keystone
+      - apache2
+      - libapache2-mod-wsgi
+
+## MySQL
+  - name: ensure certain packages are installed
+    apt:  pkg=mariadb-server state=present update_cache=yes
+    register: mariadb
+
+  - name: template 99-openstack.cnf
+    template:
+      src=files/99-openstack.cnf.j2
+      dest=/etc/mysql/mariadb.conf.d/99-openstack.cnf
+      backup=yes
+    notify: restart-mysql
+    when: mariadb.changed
+
+### run mysql_secure_installation now
+#CREATE DATABASE keystone;
+#GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY 'welkom01!';
+#GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%'  IDENTIFIED BY 'welkom01!';
+
+## RabbitMQ
+  - name: ensure certain packages are installed
+    apt:  pkg=rabbitmq-server state=present update_cache=yes
+    register: rabbitmq
+
+
+  - name: configure rabbitmq
+    shell: rabbitmqctl add_user openstack welkom01!; rabbitmqctl set_permissions openstack ".*" ".*" ".*"
+    when: rabbitmq.changed
+
+## Memcached
+  - name: template memcached.conf
+    template:
+      src=files/memcached.conf.j2
+      dest=/etc/memcached.conf
+      backup=yes
+    notify: restart-memcached
+
+## ETCD
+  - name: create etcd config folder
+    file:
+      path=/etc/etcd
+      state=directory
+      owner=etcd
+      group=etcd
+
+  - name: template etcd.conf.yml
+    template:
+      src=files/etcd.conf.yml.j2
+      dest=/etc/etcd/etcd.conf.yml
+      backup=yes
+    notify: restart-etcd
+
+## Keystone
+  - name: template keystone.conf.yml
+    template:
+      src=files/keystone.conf.j2
+      dest=/etc/keystone/keystone.conf
+      backup=yes
+    notify: restart-keystone
+
+## Populate the Identity service database:
+# su -s /bin/sh -c "keystone-manage db_sync" keystone
+
+## Initialize Fernet key repositories:
+# keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+# keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+
+## Bootstrap the Identity service:
+# keystone-manage bootstrap --bootstrap-password ADMIN_PASS \
+#  --bootstrap-admin-url http://controller:5000/v3/ \
+#  --bootstrap-internal-url http://controller:5000/v3/ \
+#  --bootstrap-public-url http://controller:5000/v3/ \
+#  --bootstrap-region-id RegionOne
+
+
+  handlers:
+  - name: restart-mysql
+    service: 
+      name=mysql 
+      state=restarted
+
+  - name: restart-memcached
+    service: 
+      name=memcached
+      state=restarted
+
+  - name: restart-etcd
+    service: 
+      name=etcd
+      state=restarted
+
+  - name: restart-keystone
+    service: 
+      name=keystone
+      state=restarted

@@ -1,0 +1,204 @@
+---
+
+vmware_guests:
+  os_lab.controller01:
+#    uuid: "421fb14a-7aba-40a4-2174-2ff996a7d454"
+#    domain: oslab
+    hostname: controller01
+    num_cpus: 8
+#    memory_mb: 4096
+#    size_gb: 64
+#    datastore: datastoreSSD-esx02
+#    datacenter: Datacenter
+#    cluster: cl1
+    folder: "OS_Lab/Control"
+    customvalues:
+    - key: ansible_group
+      value: "Control"
+#    template: "Ubuntu 16.04.2"
+    networks:
+    - name: VM Network
+      ip: 192.168.1.100
+      netmask: 255.255.255.0
+      gateway:  192.168.1.1
+      network_type: standard
+#    dns_server1: 192.168.1.12
+#    disks:
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+
+
+## Ceph
+
+  os_lab.s1a1:
+    hostname: s1a1
+    num_cpus: 8
+    folder: "OS_Lab/Ceph"
+    customvalues:
+    - key: ansible_group
+      value: "Ceph"
+    networks:
+    - name: VM Network
+      ip: 192.168.1.101
+      netmask: 255.255.255.0
+      gateway:  192.168.1.1
+      network_type: standard
+    disks:
+    - size_gb: 64
+      type: thin
+      datastore: datastoreSSD-esx02
+    - size_gb: 64
+      type: thin
+      datastore: datastoreSSD-esx02
+
+#  os_lab.s1a2:
+#    hostname: s1a2
+#    num_cpus: 8
+#    folder: "OS_Lab/Ceph"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Ceph"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.102
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
+#    disks:
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#
+#  os_lab.s1b1:
+#    hostname: s1b1
+#    num_cpus: 8
+#    folder: "OS_Lab/Ceph"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Ceph"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.121
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
+#    disks:
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#
+#  os_lab.s1b2:
+#    hostname: s1b2
+#    num_cpus: 8
+#    folder: "OS_Lab/Ceph"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Ceph"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.122
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
+#    disks:
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#
+#  os_lab.s1c1:
+#    hostname: s1c1
+#    num_cpus: 8
+#    folder: "OS_Lab/Ceph"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Ceph"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.131
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
+#    disks:
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#
+#  os_lab.s1c2:
+#    hostname: s1c2
+#    num_cpus: 8
+#    folder: "OS_Lab/Ceph"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Ceph"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.132
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
+#    disks:
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#    - size_gb: 64
+#      type: thin
+#      datastore: datastoreSSD-esx02
+#
+#
+### Compute
+#  os_lab.c1a1:
+#    hostname: c1a1
+#    num_cpus: 8
+#    folder: "OS_Lab/Compute"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Compute"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.151
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
+#
+#
+#  os_lab.c1b1:
+#    hostname: c1b1
+#    num_cpus: 8
+#    folder: "OS_Lab/Compute"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Compute"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.161
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
+#
+#
+#  os_lab.c1c1:
+#    hostname: c1c1
+#    num_cpus: 8
+#    folder: "OS_Lab/Compute"
+#    customvalues:
+#    - key: ansible_group
+#      value: "Compute"
+#    networks:
+#    - name: VM Network
+#      ip: 192.168.1.161
+#      netmask: 255.255.255.0
+#      gateway:  192.168.1.1
+#      network_type: standard
