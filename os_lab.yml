@@ -1,6 +1,6 @@
 ## Run as
 ## TF_STATE=./tf_vmware/terraform.tfstate; ansible-playbook os_lab.yml --extra-vars "firstrun=true" 
-## When not using a vault add: "--ask-vault-pass --ask-become-pass"
+## When not using a vault add: "--ask-vault-pass"
 
 
 ---
@@ -26,41 +26,77 @@
 
   tasks:
   - name: install python 2
-    raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+    raw: test -e /usr/bin/python || (sudo apt -y update && sudo apt install -y python-minimal)
     when: firstrun is defined
+
+####################
+## common stuff
+- hosts: all
+  gather_facts: True
+  tasks:
+  - name: "Build hosts file"
+    lineinfile: dest=/etc/hosts regexp='.*{{ item }}$' line="{{ hostvars[item].ansible_default_ipv4.address }} {{item}} {{ hostvars[item].ansible_hostname }} " state=present
+    with_items: 
+      - "{{ groups['all'] }}"
+    when: firstrun is defined
+
+  - name: add-apt-repository
+    shell: add-apt-repository cloud-archive:rocky -y; apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 5EDB1B62EC4926EA
+    when: firstrun is defined
+
+#  - name: add-apt-repository rocky
+#    apt_repository:
+#      repo: cloud-archive:rocky
+
+  - name: dist-upgrade
+    apt:
+      upgrade: dist
+      update_cache: yes
+      dpkg_options: 'force-confold,force-confdef'
+    when: firstrun is defined
+    ##retry so we can user forking
+    register: apt_result
+    retries: 5 
+    until: apt_result is success
+
+  - name: ensure common packages are installed
+    apt:
+      pkg:
+        - chrony
+        - software-properties-common
+        - python-openstackclient 
+      state: present
+      update_cache: yes
+    ##retry so we can user forking
+    register: apt_result
+    retries: 5 
+    until: apt_result is success
+
+  - name: configure chrony
+    lineinfile:
+      path=/etc/chrony/chrony.conf
+      regexp='^allow'
+      line='allow 10.0.0.0/24'
+    notify: restart-chrony
 
 ####################
 ## Control nodes
 - hosts: control
-  become: yes
-#  become_pass: "{{ my_sudo_pass }}"
-
   tasks:
-  - name: add-apt-repository
-    shell: add-apt-repository cloud-archive:queens; apt update; apt dist-upgrade -y
-    when: firstrun is defined
-
-  #- name: add-apt-repository queens
-  #  apt_repository:
-  #    repo: cloud-archive:queens
-
-  - name: ensure certain packages are installed
+  - name: ensure certain packages are installed on control
     apt:
       pkg:
-        - software-properties-common
-        - python-openstackclient 
         - python-pymysql
         - python-memcache
         - memcached
         - etcd
-        - keystone
         - apache2
         - libapache2-mod-wsgi
       state: present
       update_cache: yes
 
 ## MySQL
-  - name: ensure certain packages are installed
+  - name: install mariadb
     apt:  pkg=mariadb-server state=present update_cache=yes
     register: mariadb
 
@@ -72,10 +108,22 @@
     notify: restart-mysql
     when: mariadb.changed
 
-### run mysql_secure_installation now
-#CREATE DATABASE keystone;
-#GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY 'welkom01!';
-#GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%'  IDENTIFIED BY 'welkom01!';
+  - name: create databases
+    mysql_db:
+      config_file=/etc/mysql/debian.cnf
+      name={{ item }}
+    with_items:
+      - keystone
+
+  - name: create users
+    mysql_user:
+      config_file=/etc/mysql/debian.cnf
+      name={{item}}
+      host='%'
+      password="{{ DATABASE_PASS }}"
+      priv='{{item}}.*:ALL'
+    with_items:
+      - keystone
 
 ## RabbitMQ
   - name: ensure certain packages are installed
@@ -84,7 +132,7 @@
 
 
   - name: configure rabbitmq
-    shell: rabbitmqctl add_user openstack welkom01!; rabbitmqctl set_permissions openstack ".*" ".*" ".*"
+    shell: rabbitmqctl add_user openstack {{RABBIT_PASS}}; rabbitmqctl set_permissions openstack ".*" ".*" ".*"
     when: rabbitmq.changed
 
 ## Memcached
@@ -111,6 +159,10 @@
     notify: restart-etcd
 
 ## Keystone
+  - name: install keystone
+    apt:  pkg=keystone state=present update_cache=yes
+    register: keystone
+
   - name: template keystone.conf.yml
     template:
       src=files/keystone.conf.j2
@@ -118,20 +170,61 @@
       backup=yes
     notify: restart-keystone
 
-## Populate the Identity service database:
-# su -s /bin/sh -c "keystone-manage db_sync" keystone
+  - name: chown /var/log/keystone directory
+    file:
+      path: /var/log/keystone
+      state: directory
+      owner: keystone
+      group: syslog
+      mode: 0775
+    when: keystone.changed
 
-## Initialize Fernet key repositories:
-# keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
-# keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+  - name: retreive keystone table count
+    shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'keystone';" -B  -N
+    register: keystonetablecount
 
-## Bootstrap the Identity service:
-# keystone-manage bootstrap --bootstrap-password ADMIN_PASS \
-#  --bootstrap-admin-url http://controller:5000/v3/ \
-#  --bootstrap-internal-url http://controller:5000/v3/ \
-#  --bootstrap-public-url http://controller:5000/v3/ \
-#  --bootstrap-region-id RegionOne
+  - name: Populate the Identity service database
+    shell: su -s /bin/sh -c "keystone-manage db_sync" keystone
+    when: keystonetablecount.stdout|int < 10
 
+  - name: Initialize Fernet key repositories
+    shell: |
+      keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+      keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+    when: keystone.changed
+    register: fernet
+
+  - name: Bootstrap the Identity service
+    shell: |
+      keystone-manage bootstrap --bootstrap-password {{ ADMIN_PASS }} \
+       --bootstrap-admin-url http://{{ hostvars[item].ansible_hostname }}:5000/v3/ \
+       --bootstrap-internal-url http://{{ hostvars[item].ansible_hostname }}:5000/v3/ \
+       --bootstrap-public-url http://{{ hostvars[item].ansible_hostname }}:5000/v3/ \
+       --bootstrap-region-id RegionOne; exit 0
+    become: yes
+    become_user: root
+    with_items: 
+      - "{{ groups['control'] }}"
+    when: fernet.changed
+
+  - name: template adminrc
+    template:
+      src=files/adminrc.j2
+      dest={{item}}
+      backup=yes
+    with_items:
+      - /root/.adminrc
+      - /home/ubuntu/.adminrc
+
+  - name: create domain project user and roles
+    block:
+      - shell: . ~/.adminrc && openstack domain create --description "An Example Domain" example; exit 0
+      - shell: . ~/.adminrc && openstack project create --domain default --description "Service Project" service; exit 0
+      - shell: . ~/.adminrc && openstack project create --domain default --description "Demo Project" myproject; exit 0
+      - shell: . ~/.adminrc && openstack user create --domain default --password {{my_openstack_pass}} myuser; exit 0
+      - shell: . ~/.adminrc && openstack role create myrole; exit 0
+      - shell: . ~/.adminrc && openstack role add --project myproject --user myuser myrole; exit 0
+    when: fernet.changed
 
   handlers:
   - name: restart-mysql
@@ -152,4 +245,9 @@
   - name: restart-keystone
     service: 
       name=keystone
+      state=restarted
+
+  - name: restart-chrony
+    service:
+      name=chrony
       state=restarted

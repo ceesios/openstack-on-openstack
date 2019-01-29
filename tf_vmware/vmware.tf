@@ -50,7 +50,7 @@ data "vsphere_virtual_machine" "template" {
 ## Create the actual servers
 ## control
   resource "vsphere_virtual_machine" "control" {
-    count            = "${var.control_count}"
+#    count            = "${var.control_count}"
     name             = "${var.clustername}-control${count.index+1}"
     resource_pool_id = "${data.vsphere_compute_cluster.compute_cluster.resource_pool_id}"
     datastore_id     = "${data.vsphere_datastore.datastore.id}"
@@ -83,9 +83,14 @@ data "vsphere_virtual_machine" "template" {
         }
 
         network_interface {
-          ipv4_address = "192.168.1.6${count.index}"
+          ipv4_address = "${var.mgmt-subnet}60"
           ipv4_netmask = 24
         }
+
+        # network_interface {
+        #   ipv4_address = "${var.provider-subnet}60"
+        #   ipv4_netmask = 24
+        # }
 
         ipv4_gateway   = "192.168.1.1"
         dns_server_list = ["8.8.8.8"]
@@ -124,15 +129,19 @@ data "vsphere_virtual_machine" "template" {
 
       customize {
         linux_options {
-          host_name    = "control${count.index+1}"
+          host_name    = "C1${element(var.nodenames, count.index % length(var.nodenames))}"
           domain       = "${var.clustername}"
         }
 
         network_interface {
-          ipv4_address = "192.168.1.6${count.index+1}"
+          ipv4_address = "${var.mgmt-subnet}6${count.index+1}"
           ipv4_netmask = 24
         }
 
+        # network_interface {
+        #   ipv4_address = "${var.priv-subnet}6${count.index}"
+        #   ipv4_netmask = 24
+        # }
         dns_server_list = ["8.8.8.8"]
         ipv4_gateway   = "192.168.1.1"
       }

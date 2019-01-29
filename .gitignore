@@ -1,2 +1,6 @@
 .ansible
 all/vault.yml
+terraform.tfstate.backup
+terraform.tfstate
+.terraform/
+*.tfvars
