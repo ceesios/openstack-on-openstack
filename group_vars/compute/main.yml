@@ -1,0 +1,4 @@
+---
+
+nova_packages:
+  - nova-compute

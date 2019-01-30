@@ -29,8 +29,9 @@
     raw: test -e /usr/bin/python || (sudo apt -y update && sudo apt install -y python-minimal)
     when: firstrun is defined
 
-####################
+#######################################################################
 ## common stuff
+#######################################################################
 - hosts: all
   gather_facts: True
   tasks:
@@ -79,8 +80,11 @@
       line='allow 10.0.0.0/24'
     notify: restart-chrony
 
-####################
+
+
+#######################################################################
 ## Control nodes
+#######################################################################
 - hosts: control
   tasks:
   - name: ensure certain packages are installed on control
@@ -99,6 +103,7 @@
   - name: install mariadb
     apt:  pkg=mariadb-server state=present update_cache=yes
     register: mariadb
+    tags: database
 
   - name: template 99-openstack.cnf
     template:
@@ -107,13 +112,14 @@
       backup=yes
     notify: restart-mysql
     when: mariadb.changed
+    tags: database
 
   - name: create databases
     mysql_db:
       config_file=/etc/mysql/debian.cnf
       name={{ item }}
-    with_items:
-      - keystone
+    with_items: "{{mysql_databases}}"
+    tags: database
 
   - name: create users
     mysql_user:
@@ -122,8 +128,8 @@
       host='%'
       password="{{ DATABASE_PASS }}"
       priv='{{item}}.*:ALL'
-    with_items:
-      - keystone
+    with_items: "{{mysql_databases}}"
+    tags: database
 
 ## RabbitMQ
   - name: ensure certain packages are installed
@@ -162,6 +168,7 @@
   - name: install keystone
     apt:  pkg=keystone state=present update_cache=yes
     register: keystone
+    tags: keystone
 
   - name: template keystone.conf.yml
     template:
@@ -169,6 +176,7 @@
       dest=/etc/keystone/keystone.conf
       backup=yes
     notify: restart-keystone
+    tags: keystone
 
   - name: chown /var/log/keystone directory
     file:
@@ -182,10 +190,12 @@
   - name: retreive keystone table count
     shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'keystone';" -B  -N
     register: keystonetablecount
+    tags: keystone
 
   - name: Populate the Identity service database
     shell: su -s /bin/sh -c "keystone-manage db_sync" keystone
     when: keystonetablecount.stdout|int < 10
+    tags: keystone
 
   - name: Initialize Fernet key repositories
     shell: |
@@ -193,6 +203,7 @@
       keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
     when: keystone.changed
     register: fernet
+    tags: keystone
 
   - name: Bootstrap the Identity service
     shell: |
@@ -206,6 +217,7 @@
     with_items: 
       - "{{ groups['control'] }}"
     when: fernet.changed
+    tags: keystone
 
   - name: template adminrc
     template:
@@ -215,6 +227,7 @@
     with_items:
       - /root/.adminrc
       - /home/ubuntu/.adminrc
+    tags: keystone
 
   - name: create domain project user and roles
     block:
@@ -225,6 +238,105 @@
       - shell: . ~/.adminrc && openstack role create myrole; exit 0
       - shell: . ~/.adminrc && openstack role add --project myproject --user myuser myrole; exit 0
     when: fernet.changed
+    tags: keystone
+
+## Glance
+  - name: prep for glance
+    block:
+      - shell: . ~/.adminrc && openstack user create --domain default --password {{GLANCE_PASS}} glance; exit 0
+      - shell: . ~/.adminrc && openstack role add --project service --user glance admin; exit 0
+      - shell: . ~/.adminrc && openstack service create --name glance --description "OpenStack Image" image; exit 0
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne image public http://os-lab-control:9292; exit 0
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne image internal http://os-lab-control:9292; exit 0
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne image admin http://os-lab-control:9292; exit 0
+    when: firstrun is defined
+    tags: glance
+
+  - name: install glance
+    block:
+      - apt:  pkg=glance state=present update_cache=yes
+      - template:
+          src=files/{{item}}.j2
+          dest=/etc/glance/{{item}}
+          backup=yes
+        with_items:
+          - glance-api.conf
+          - glance-registry.conf
+        notify: 
+          - restart-glance-api
+          - restart-glance-registry
+      - shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'glance';" -B  -N
+        register: glancetablecount
+      - name: Populate database
+        shell: su -s /bin/sh -c "glance-manage db_sync" glance
+        when: glancetablecount.stdout|int < 10
+    tags: glance
+
+## Compute controller
+  - name: prep for nova
+    block:
+      - shell: . ~/.adminrc && openstack user create --domain default --password {{NOVA_PASS}} nova
+      - shell: . ~/.adminrc && openstack role add --project service --user nova admin
+      - shell: . ~/.adminrc && openstack service create --name nova --description "OpenStack Compute" compute
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne compute public http://os-lab-control:8774/v2.1
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne compute internal http://os-lab-control:8774/v2.1
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne compute admin http://os-lab-control:8774/v2.1
+      - shell: . ~/.adminrc && openstack user create --domain default --password {{PLACEMENT_PASS}} placement
+      - shell: . ~/.adminrc && openstack role add --project service --user placement admin
+      - shell: . ~/.adminrc && openstack service create --name placement --description "Placement API" placement
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne placement public http://os-lab-control:8778
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne placement internal http://os-lab-control:8778
+      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne placement admin http://os-lab-control:8778
+    when: firstrun is defined
+    tags: nova
+
+  - name: install nova
+    block:
+      - name: install nova packages
+        apt:  pkg={{nova_packages}} state=present update_cache=yes
+      - name: configure nova
+        template:
+          src=files/{{item}}.j2
+          dest=/etc/nova/{{item}}
+          backup=yes
+        with_items:
+          - nova.conf
+        notify: 
+          - restart-nova-api
+          - restart-nova-conductor
+          - restart-nova-scheduler
+          - restart-nova-novncproxy
+      - name: count nova tables
+        shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'nova_api';" -B  -N
+        register: novaapitablecount
+      - name: Populate the Identity service database
+        shell: su -s /bin/sh -c "nova-manage api_db sync" nova
+        when: novaapitablecount.stdout|int < 10
+      - name: count nova tables
+        shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'nova';" -B  -N
+        register: novatablecount
+      - name: stop nova before populating database
+        service:
+          name: "{{item}}"
+          state: stopped
+        with_items:
+          - nova-api
+          - nova-conductor
+          - nova-scheduler
+          - nova-novncproxy
+        when: novatablecount.stdout|int < 10
+      - name: Populate databases
+        shell: |
+          su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova
+          su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova 109e1d4b-536a-40d0-83c6-5f121b82b650
+          su -s /bin/sh -c "nova-manage db sync" nova
+        when: novatablecount.stdout|int < 10
+        notify: 
+          - restart-nova-api
+          - restart-nova-conductor
+          - restart-nova-scheduler
+          - restart-nova-novncproxy
+    tags: nova
 
   handlers:
   - name: restart-mysql
@@ -242,12 +354,86 @@
       name=etcd
       state=restarted
 
+  - name: restart-chrony
+    service:
+      name=chrony
+      state=restarted
+
   - name: restart-keystone
     service: 
       name=keystone
       state=restarted
 
-  - name: restart-chrony
-    service:
-      name=chrony
+  - name: restart-glance-registry
+    service: 
+      name=glance-registry
       state=restarted
+
+  - name: restart-glance-api
+    service: 
+      name=glance-api
+      state=restarted
+
+  - name: restart-nova-api
+    service: 
+      name="nova-api"
+      state=restarted
+
+  - name: restart-nova-conductor
+    service: 
+      name="nova-conductor"
+      state=restarted
+
+  - name: restart-nova-scheduler
+    service: 
+      name="nova-scheduler"
+      state=restarted
+
+  - name: restart-nova-novncproxy
+    service: 
+      name="nova-novncproxy"
+      state=restarted
+
+
+#######################################################################
+## Compute nodes
+#######################################################################
+
+- hosts: compute
+  tasks:
+    - name: install nova packages
+      apt:  pkg={{nova_packages}} state=present update_cache=yes
+      tags: nova-compute
+
+    - name: configure nova
+      template:
+        src=files/nova.conf.j2
+        dest=/etc/nova/nova.conf
+        backup=yes
+      notify: restart-nova-compute
+      tags: nova-compute
+      register: novacompute
+
+    - name: configure nova-compute
+      template:
+        src=files/nova-compute.conf.j2
+        dest=/etc/nova/nova-compute.conf
+        backup=yes
+      notify: restart-nova-compute
+      tags: nova-compute
+      register: novacompute
+
+  handlers:
+  - name: restart-nova-compute
+    service: 
+      name=nova-compute
+      state=restarted
+
+- hosts: control
+  tasks:
+    - name: add compute node to cell database
+      shell: . ~/.adminrc && su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova; exit 0
+      when: novacompute.changed
+
+
+

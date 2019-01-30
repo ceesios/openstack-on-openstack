@@ -1,3 +1,4 @@
 ---
 
 ansible_sudo_pass: "{{ my_sudo_pass }}"
+control_node_name: "os-lab-control"

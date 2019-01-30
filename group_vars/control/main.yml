@@ -1,2 +1,18 @@
+---
+
 openstack_pass: welkom01!
 
+nova_packages:
+  - nova-api
+  - nova-conductor
+  - nova-novncproxy
+  - nova-scheduler
+  - nova-placement-api  
+
+mysql_databases:
+  - keystone
+  - glance
+  - nova
+  - nova_api
+  - nova_cell0
+  - placement

@@ -1,0 +1,30 @@
+[DEFAULT]
+
+[database]
+connection = mysql+pymysql://glance:{{DATABASE_PASS}}@{{ansible_default_ipv4.address}}/glance
+backend = sqlalchemy
+
+[keystone_authtoken]
+www_authenticate_uri = http://{{control_node_name}}:5000
+auth_url = http://{{control_node_name}}:5000
+memcached_servers = {{control_node_name}}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = glance
+password = {{GLANCE_PASS}}
+
+[matchmaker_redis]
+[oslo_messaging_amqp]
+[oslo_messaging_kafka]
+[oslo_messaging_notifications]
+[oslo_messaging_rabbit]
+[oslo_messaging_zmq]
+[oslo_policy]
+
+[paste_deploy]
+flavor = keystone
+
+[profiler]
+
