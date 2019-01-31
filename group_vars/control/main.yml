@@ -2,12 +2,14 @@
 
 openstack_pass: welkom01!
 
+
 nova_packages:
   - nova-api
   - nova-conductor
   - nova-novncproxy
   - nova-scheduler
   - nova-placement-api  
+
 
 mysql_databases:
   - keystone
@@ -16,3 +18,125 @@ mysql_databases:
   - nova_api
   - nova_cell0
   - placement
+  - neutron
+
+
+keystone_domains:
+  example: "An Example Domain"
+
+
+keystone_projects:
+  service: "Service Project"
+  myproject: "Demo Project"
+
+
+keystone_roles:
+  - myrole
+
+
+keystone_services:
+  glance:
+    type: image
+    description: "OpenStack Image"
+    interface: public
+    region: "RegionOne"
+  nova:
+    type: compute
+    description: "OpenStack Compute"
+    interface: public
+    region: "RegionOne"
+  placement:
+    type: placement
+    description: "Placement API"
+    interface: public
+    region: "RegionOne"
+  neutron:
+    type: network
+    description: "OpenStack Networking" 
+    interface: public
+    region: "RegionOne"
+
+
+keystone_endpoints:
+  - region: RegionOne
+    service: glance
+    interface: public 
+    url: http://os-lab-control:9292
+  - region: RegionOne
+    service: glance
+    interface: internal 
+    url: http://os-lab-control:9292
+  - region: RegionOne
+    service: glance
+    interface: admin 
+    url: http://os-lab-control:9292
+
+  - region: RegionOne
+    service: nova
+    interface: public 
+    url: http://os-lab-control:8774/v2.1
+  - region: RegionOne
+    service: nova
+    interface: internal 
+    url: http://os-lab-control:8774/v2.1
+  - region: RegionOne
+    service: nova
+    interface: admin 
+    url: http://os-lab-control:8774/v2.1
+
+  - region: RegionOne
+    service: placement
+    interface: public 
+    url: http://os-lab-control:8778
+  - region: RegionOne
+    service: placement
+    interface: internal 
+    url: http://os-lab-control:8778
+  - region: RegionOne
+    service: placement
+    interface: admin 
+    url: http://os-lab-control:8778
+
+  - region: RegionOne
+    service: neutron
+    interface: public 
+    url: http://os-lab-control:9696
+  - region: RegionOne
+    service: neutron
+    interface: internal 
+    url: http://os-lab-control:9696
+  - region: RegionOne
+    service: neutron
+    interface: admin 
+    url: http://os-lab-control:9696
+
+
+keystone_users:
+  demo:
+    pass: '{{DEMO_PASS}}'
+    project: myproject
+    role: myrole
+  myuser:
+    pass: '{{my_openstack_pass}}'
+    project: myproject
+    role: myrole
+  glance:
+    pass: '{{GLANCE_PASS}}'
+    project: service
+    role: admin
+  nova:
+    pass: '{{NOVA_PASS}}'
+    project: service
+    role: admin
+  placement:
+    pass: '{{PLACEMENT_PASS}}'
+    project: service
+    role: admin
+  neutron:
+    pass: '{{NEUTRON_PASS}}'
+    project: service
+    role: admin
+  cinder:
+    pass: '{{CINDER_PASS}}'
+    project: service
+    role: admin

@@ -63,6 +63,19 @@ enabled = true
 server_listen = {{control_node_name}}
 server_proxyclient_address = {{control_node_name}}
 
+url = http://{{control_node_name}}:9696
+auth_url = http://{{control_node_name}}:5000
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+region_name = RegionOne
+project_name = service
+username = neutron
+password = {{NEUTRON_PASS}}
+service_metadata_proxy = true
+metadata_proxy_shared_secret = {{METADATA_SECRET}}
+
+
 [notifications]
 [osapi_v21]
 

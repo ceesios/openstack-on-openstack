@@ -1,4 +1,6 @@
 ---
 
-nova_packages:
+packages:
   - nova-compute
+  - neutron-linuxbridge-agent
+  

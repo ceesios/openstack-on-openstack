@@ -26,7 +26,9 @@
 
   tasks:
   - name: install python 2
-    raw: test -e /usr/bin/python || (sudo apt -y update && sudo apt install -y python-minimal)
+    raw: |
+      test -e /usr/bin/python || \
+       (sudo apt -y update && sudo apt install -y python-minimal)
     when: firstrun is defined
 
 #######################################################################
@@ -36,13 +38,19 @@
   gather_facts: True
   tasks:
   - name: "Build hosts file"
-    lineinfile: dest=/etc/hosts regexp='.*{{ item }}$' line="{{ hostvars[item].ansible_default_ipv4.address }} {{item}} {{ hostvars[item].ansible_hostname }} " state=present
+    lineinfile: 
+      dest=/etc/hosts 
+      regexp='.*{{ item }}$' 
+      line="{{ hostvars[item].ansible_default_ipv4.address }} {{item}} {{ hostvars[item].ansible_hostname }}" 
+      state=present
     with_items: 
       - "{{ groups['all'] }}"
     when: firstrun is defined
 
   - name: add-apt-repository
-    shell: add-apt-repository cloud-archive:rocky -y; apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 5EDB1B62EC4926EA
+    shell: |
+      add-apt-repository cloud-archive:rocky -y; apt-key adv \
+       --keyserver keyserver.ubuntu.com --recv-keys 5EDB1B62EC4926EA
     when: firstrun is defined
 
 #  - name: add-apt-repository rocky
@@ -68,7 +76,7 @@
         - python-openstackclient 
       state: present
       update_cache: yes
-    ##retry so we can user forking
+    ##retry so we can use forking
     register: apt_result
     retries: 5 
     until: apt_result is success
@@ -80,6 +88,24 @@
       line='allow 10.0.0.0/24'
     notify: restart-chrony
 
+  - name: template adminrc on all nodes (might come in handy)
+    template:
+      src=files/adminrc.j2
+      dest={{item}}
+      backup=yes
+    with_items:
+      - /root/.adminrc
+      - /home/ubuntu/.adminrc
+    tags: rc
+
+  - name: add adminrc to bashrc on all nodes
+    lineinfile:
+      path={{item}}
+      line='. ~/.adminrc'
+    with_items:
+      - /root/.bashrc
+      - /home/ubuntu/.bashrc
+    tags: rc
 
 
 #######################################################################
@@ -96,22 +122,25 @@
         - etcd
         - apache2
         - libapache2-mod-wsgi
+        - mariadb-server
+        - rabbitmq-server
+        - neutron-server
+        - neutron-plugin-ml2
+        - neutron-linuxbridge-agent
+        - neutron-l3-agent
+        - neutron-dhcp-agent
+        - neutron-metadata-agent
       state: present
       update_cache: yes
+    tags: pkg
 
 ## MySQL
-  - name: install mariadb
-    apt:  pkg=mariadb-server state=present update_cache=yes
-    register: mariadb
-    tags: database
-
   - name: template 99-openstack.cnf
     template:
       src=files/99-openstack.cnf.j2
       dest=/etc/mysql/mariadb.conf.d/99-openstack.cnf
       backup=yes
     notify: restart-mysql
-    when: mariadb.changed
     tags: database
 
   - name: create databases
@@ -132,14 +161,15 @@
     tags: database
 
 ## RabbitMQ
-  - name: ensure certain packages are installed
-    apt:  pkg=rabbitmq-server state=present update_cache=yes
-    register: rabbitmq
-
-
-  - name: configure rabbitmq
-    shell: rabbitmqctl add_user openstack {{RABBIT_PASS}}; rabbitmqctl set_permissions openstack ".*" ".*" ".*"
-    when: rabbitmq.changed
+  - name: add openstack user to rabbitmq
+    rabbitmq_user:
+      user: openstack
+      password: "{{RABBIT_PASS}}"
+      vhost: /
+      configure_priv: .*
+      read_priv: .*
+      write_priv: .*
+      state: present
 
 ## Memcached
   - name: template memcached.conf
@@ -185,10 +215,11 @@
       owner: keystone
       group: syslog
       mode: 0775
-    when: keystone.changed
 
   - name: retreive keystone table count
-    shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'keystone';" -B  -N
+    shell: |
+      mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+      WHERE table_schema = 'keystone';" -B  -N
     register: keystonetablecount
     tags: keystone
 
@@ -199,8 +230,10 @@
 
   - name: Initialize Fernet key repositories
     shell: |
-      keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
-      keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+      keystone-manage fernet_setup --keystone-user keystone \
+       --keystone-group keystone
+      keystone-manage credential_setup --keystone-user keystone \
+       --keystone-group keystone
     when: keystone.changed
     register: fernet
     tags: keystone
@@ -219,39 +252,74 @@
     when: fernet.changed
     tags: keystone
 
-  - name: template adminrc
-    template:
-      src=files/adminrc.j2
-      dest={{item}}
-      backup=yes
-    with_items:
-      - /root/.adminrc
-      - /home/ubuntu/.adminrc
-    tags: keystone
-
-  - name: create domain project user and roles
+  - name: configure keystone domains, roles and users
     block:
-      - shell: . ~/.adminrc && openstack domain create --description "An Example Domain" example; exit 0
-      - shell: . ~/.adminrc && openstack project create --domain default --description "Service Project" service; exit 0
-      - shell: . ~/.adminrc && openstack project create --domain default --description "Demo Project" myproject; exit 0
-      - shell: . ~/.adminrc && openstack user create --domain default --password {{my_openstack_pass}} myuser; exit 0
-      - shell: . ~/.adminrc && openstack role create myrole; exit 0
-      - shell: . ~/.adminrc && openstack role add --project myproject --user myuser myrole; exit 0
-    when: fernet.changed
-    tags: keystone
+      - name: add domains
+        os_keystone_domain:
+          cloud: "{{ooo}}"
+          state: present
+          name: "{{item.key}}"
+          description: "{{item.value}}"
+        with_dict: "{{keystone_domains}}"
+
+      - name: add projects
+        os_project:
+          cloud: "{{ooo}}"
+          name: "{{item.key}}"
+          description: "{{item.value}}"
+          domain_id: default
+        with_dict: "{{keystone_projects}}"
+
+      - name: add roles to keystone
+        os_keystone_role: 
+          cloud: "{{ooo}}"
+          name: "{{item}}"
+        with_items: "{{keystone_roles}}"
+
+      - name: add users to keystone
+        os_user: 
+          cloud: "{{ooo}}"
+          name: "{{item.key}}"
+          password: "{{item.value.pass}}"
+          update_password: on_create
+          domain: default
+        with_dict: "{{keystone_users}}"
+
+      - name: assign roles to users in keystone
+        os_user_role: 
+          cloud: "{{ooo}}"
+          user: "{{item.key}}"
+          role: "{{item.value.role}}"
+          project: "{{item.value.project}}"
+        with_dict: "{{keystone_users}}"
+    tags: 
+    - keystone
+    - keystone_users
+
+  - name: prep services and endpoints
+    block:
+      - name: create services in keystone
+        os_keystone_service:
+          cloud: "{{ooo}}"
+          name: "{{item.key}}"
+          service_type: "{{item.value.type}}"
+          description: "{{item.value.description}}"
+        with_dict: "{{keystone_services}}"
+
+      - name: create endpoints in keystone
+        os_keystone_endpoint:
+          cloud: "{{ooo}}"
+          service: "{{item.service}}"
+          endpoint_interface: "{{item.interface}}"
+          url: "{{item.url}}"
+          region: "{{item.region}}"
+        with_items: "{{keystone_endpoints}}"
+    tags: 
+    - keystone
+    - keystone_services
+
 
 ## Glance
-  - name: prep for glance
-    block:
-      - shell: . ~/.adminrc && openstack user create --domain default --password {{GLANCE_PASS}} glance; exit 0
-      - shell: . ~/.adminrc && openstack role add --project service --user glance admin; exit 0
-      - shell: . ~/.adminrc && openstack service create --name glance --description "OpenStack Image" image; exit 0
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne image public http://os-lab-control:9292; exit 0
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne image internal http://os-lab-control:9292; exit 0
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne image admin http://os-lab-control:9292; exit 0
-    when: firstrun is defined
-    tags: glance
-
   - name: install glance
     block:
       - apt:  pkg=glance state=present update_cache=yes
@@ -265,56 +333,51 @@
         notify: 
           - restart-glance-api
           - restart-glance-registry
-      - shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'glance';" -B  -N
+      - shell: 
+          mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+          WHERE table_schema = 'glance';" -B  -N
         register: glancetablecount
       - name: Populate database
         shell: su -s /bin/sh -c "glance-manage db_sync" glance
         when: glancetablecount.stdout|int < 10
     tags: glance
 
-## Compute controller
-  - name: prep for nova
-    block:
-      - shell: . ~/.adminrc && openstack user create --domain default --password {{NOVA_PASS}} nova
-      - shell: . ~/.adminrc && openstack role add --project service --user nova admin
-      - shell: . ~/.adminrc && openstack service create --name nova --description "OpenStack Compute" compute
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne compute public http://os-lab-control:8774/v2.1
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne compute internal http://os-lab-control:8774/v2.1
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne compute admin http://os-lab-control:8774/v2.1
-      - shell: . ~/.adminrc && openstack user create --domain default --password {{PLACEMENT_PASS}} placement
-      - shell: . ~/.adminrc && openstack role add --project service --user placement admin
-      - shell: . ~/.adminrc && openstack service create --name placement --description "Placement API" placement
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne placement public http://os-lab-control:8778
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne placement internal http://os-lab-control:8778
-      - shell: . ~/.adminrc && openstack endpoint create --region RegionOne placement admin http://os-lab-control:8778
-    when: firstrun is defined
-    tags: nova
-
+#######################################################################
+## Nova controller
   - name: install nova
     block:
       - name: install nova packages
         apt:  pkg={{nova_packages}} state=present update_cache=yes
+
       - name: configure nova
         template:
           src=files/{{item}}.j2
-          dest=/etc/nova/{{item}}
+          dest=/etc/{{item}}
           backup=yes
         with_items:
-          - nova.conf
+          - nova/nova.conf
         notify: 
           - restart-nova-api
           - restart-nova-conductor
           - restart-nova-scheduler
           - restart-nova-novncproxy
+
       - name: count nova tables
-        shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'nova_api';" -B  -N
+        shell: |
+          mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+          WHERE table_schema = 'nova_api';" -B  -N
         register: novaapitablecount
+
       - name: Populate the Identity service database
         shell: su -s /bin/sh -c "nova-manage api_db sync" nova
         when: novaapitablecount.stdout|int < 10
+
       - name: count nova tables
-        shell: mysql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'nova';" -B  -N
+        shell: |
+          mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+          WHERE table_schema = 'nova';" -B  -N
         register: novatablecount
+
       - name: stop nova before populating database
         service:
           name: "{{item}}"
@@ -325,10 +388,13 @@
           - nova-scheduler
           - nova-novncproxy
         when: novatablecount.stdout|int < 10
+
       - name: Populate databases
         shell: |
           su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova
-          su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova 109e1d4b-536a-40d0-83c6-5f121b82b650
+          su -s /bin/sh -c "nova-manage cell_v2 create_cell \
+           --name=cell1 \
+           --verbose" nova 109e1d4b-536a-40d0-83c6-5f121b82b650
           su -s /bin/sh -c "nova-manage db sync" nova
         when: novatablecount.stdout|int < 10
         notify: 
@@ -338,61 +404,102 @@
           - restart-nova-novncproxy
     tags: nova
 
+
+#######################################################################
+## Neutron controller
+  - name: configure neutron controller
+    block:
+    - name: configure neutron
+      template:
+        src=files/{{item}}.j2
+        dest=/etc/{{item}}
+        backup=yes
+      with_items:
+        - neutron/neutron.conf
+        - neutron/plugins/ml2/ml2_conf.ini
+        - neutron/plugins/ml2/linuxbridge_agent.ini
+        - neutron/l3_agent.ini
+        - neutron/dhcp_agent.ini
+        - neutron/metadata_agent.ini
+      notify: 
+        - restart-nova-api
+        - restart-neutron-server
+        - restart-neutron-linuxbridge-agent
+        - restart-neutron-dhcp-agent
+        - restart-neutron-metadata-agent
+        - restart-neutron-l3-agent
+    tags: neutron
+
+  - name: retreive neutron table count
+    shell: |
+      mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+      WHERE table_schema = 'neutron';" -B  -N
+    register: neutrontablecount
+    tags: neutron
+
+  - name: Populate the Identity service database
+    shell: |
+      su -s /bin/sh -c "neutron-db-manage \
+      --config-file /etc/neutron/neutron.conf \
+      --config-file /etc/neutron/plugins/ml2/ml2_conf.ini \
+      upgrade head" neutron
+    when: neutrontablecount.stdout|int < 10
+    tags: neutron
+
+  - name: configure sysctl
+    sysctl:
+      name: item.key
+      value: item.value
+    with_items:
+      - net.bridge.bridge-nf-call-iptables: 1
+      - net.bridge.bridge-nf-call-ip6tables: 1
+    tags: neutron
+
+  - name: ensure br_netfilter kernel module is available
+    modprobe:
+      name: br_netfilter
+      state: present
+    tags: neutron
+
+
   handlers:
   - name: restart-mysql
-    service: 
-      name=mysql 
-      state=restarted
-
+    service: name=mysql state=restarted
   - name: restart-memcached
-    service: 
-      name=memcached
-      state=restarted
-
+    service: name=memcached state=restarted
   - name: restart-etcd
-    service: 
-      name=etcd
-      state=restarted
-
+    service: name=etcd state=restarted
   - name: restart-chrony
-    service:
-      name=chrony
-      state=restarted
+    service: name=chrony state=restarted
 
   - name: restart-keystone
-    service: 
-      name=keystone
-      state=restarted
+    service: name=keystone state=restarted
 
   - name: restart-glance-registry
-    service: 
-      name=glance-registry
-      state=restarted
-
+    service: name=glance-registry state=restarted
   - name: restart-glance-api
-    service: 
-      name=glance-api
-      state=restarted
+    service: name=glance-api state=restarted
 
   - name: restart-nova-api
-    service: 
-      name="nova-api"
-      state=restarted
-
+    service: name="nova-api" state=restarted
   - name: restart-nova-conductor
-    service: 
-      name="nova-conductor"
-      state=restarted
-
+    service: name="nova-conductor" state=restarted
   - name: restart-nova-scheduler
-    service: 
-      name="nova-scheduler"
-      state=restarted
-
+    service: name="nova-scheduler" state=restarted
   - name: restart-nova-novncproxy
-    service: 
-      name="nova-novncproxy"
-      state=restarted
+    service: name="nova-novncproxy" state=restarted
+
+  - name: restart-neutron-server
+    service: name="neutron-server" state=restarted
+  - name: restart-neutron-linuxbridge-agent
+    service: name="neutron-linuxbridge-agent" state=restarted
+  - name: restart-neutron-dhcp-agent
+    service: name="neutron-dhcp-agent" state=restarted
+  - name: restart-neutron-metadata-agent
+    service: name="neutron-metadata-agent" state=restarted
+  - name: restart-neutron-l3-agent
+    service: name="neutron-l3-agent" state=restarted
+
 
 
 #######################################################################
@@ -401,39 +508,61 @@
 
 - hosts: compute
   tasks:
-    - name: install nova packages
-      apt:  pkg={{nova_packages}} state=present update_cache=yes
-      tags: nova-compute
+## pakages
+  - name: install nova packages
+    apt:  pkg={{packages}} state=present update_cache=yes
+    tags: compute
 
-    - name: configure nova
-      template:
-        src=files/nova.conf.j2
-        dest=/etc/nova/nova.conf
-        backup=yes
-      notify: restart-nova-compute
-      tags: nova-compute
-      register: novacompute
+## Configure nova & neutron
+  - name: configure nova & neutron
+    template:
+      src=files/{{item}}.j2
+      dest=/etc/{{item}}
+      backup=yes
+    with_items:
+      - nova/nova.conf
+      - nova/nova-compute.conf
+      - neutron/neutron.conf
+      - neutron/plugins/ml2/linuxbridge_agent.ini
+    notify: 
+      - restart-nova-compute
+      - restart-neutron-linuxbridge-agent
+    tags: compute
 
-    - name: configure nova-compute
-      template:
-        src=files/nova-compute.conf.j2
-        dest=/etc/nova/nova-compute.conf
-        backup=yes
-      notify: restart-nova-compute
-      tags: nova-compute
-      register: novacompute
+  - name: configure sysctl
+    sysctl:
+      name: item.key
+      value: item.value
+    with_items:
+      - net.bridge.bridge-nf-call-iptables: 1
+      - net.bridge.bridge-nf-call-ip6tables: 1
+    tags: compute
+
+  - name: ensure br_netfilter kernel module is available
+    modprobe:
+      name: br_netfilter
+      state: present
+    tags: compute
 
   handlers:
   - name: restart-nova-compute
-    service: 
-      name=nova-compute
-      state=restarted
+    service: name=nova-compute state=restarted
+  - name: restart-neutron-linuxbridge-agent
+    service: name=neutron-linuxbridge-agent state=restarted
+
+
+#######################################################################
+## Finish up control nodes
+#######################################################################
 
 - hosts: control
   tasks:
-    - name: add compute node to cell database
-      shell: . ~/.adminrc && su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova; exit 0
-      when: novacompute.changed
+  - name: add compute nodes to cell database
+    shell: |
+      . ~/.adminrc && su -s /bin/sh -c "nova-manage cell_v2 \
+      discover_hosts --verbose" nova; exit 0
+    when: firstrun is defined
+    tags: compute
 
 
 

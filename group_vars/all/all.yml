@@ -2,3 +2,16 @@
 
 ansible_sudo_pass: "{{ my_sudo_pass }}"
 control_node_name: "os-lab-control"
+control_node_ip: "81.4.87.82"
+
+
+ooo:
+  compute_api_version: 3
+  auth:
+    auth_url: http://{{control_node_ip}}:5000/v3
+    project_name: admin
+    username: admin
+    password: "{{ADMIN_PASS}}"
+    user_domain_name: default
+    project_domain_name: default
+  region_name: RegionOne
