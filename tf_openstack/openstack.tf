@@ -115,9 +115,9 @@ ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh
     network {
       name            = "${openstack_networking_network_v2.priv-net.name}"
     }
-    network {
-      name            = "${var.provider-net-name}"
-    }
+    # network {
+    #   name            = "${var.provider-net-name}"
+    # }
 
     connection {
       type            = "ssh"

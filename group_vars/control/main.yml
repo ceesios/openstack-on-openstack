@@ -2,6 +2,28 @@
 
 openstack_pass: welkom01!
 
+packages:
+  - apache2
+  - etcd
+  - glance
+  - libapache2-mod-wsgi
+  - mariadb-server
+  - memcached
+  - neutron-dhcp-agent
+  - neutron-l3-agent
+  - neutron-linuxbridge-agent
+  - neutron-metadata-agent
+  - neutron-plugin-ml2
+  - neutron-server
+  - nova-api
+  - nova-conductor
+  - nova-novncproxy
+  - nova-placement-api  
+  - nova-scheduler
+  - openstack-dashboard
+  - python-memcache
+  - python-pymysql
+  - rabbitmq-server
 
 nova_packages:
   - nova-api

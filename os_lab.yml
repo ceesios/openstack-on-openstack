@@ -1,26 +1,11 @@
 ## Run as
-## TF_STATE=./tf_vmware/terraform.tfstate; ansible-playbook os_lab.yml --extra-vars "firstrun=true" 
-## When not using a vault add: "--ask-vault-pass"
+## TF_STATE=./tf_openstack/terraform.tfstate ansible-playbook os_lab.yml  --extra-vars "firstrun=true" --start-at="retreive keystone table count"
+## When using a vault add: "--ask-vault-pass"
 
 
 ---
 
-# - hosts: localhost
-#   tasks:
-#   - include_vars: .vault.yml
-
-## Servers uitrollen
-## Mag uit staan omdat we uitrollen met TF
-#   roles:
-#     - vmware-guest
-
-# - hosts: localhost
-#   tasks:
-#   - debug: 'var=groups'
-
-
-
-## install python 2
+## install python via raw module
 - hosts: all
   gather_facts: False
 
@@ -107,31 +92,18 @@
       - /home/ubuntu/.bashrc
     tags: rc
 
+  handlers:
+  - name: restart-chrony
+    service: name=chrony state=restarted
 
 #######################################################################
 ## Control nodes
 #######################################################################
 - hosts: control
   tasks:
+## pakages
   - name: ensure certain packages are installed on control
-    apt:
-      pkg:
-        - python-pymysql
-        - python-memcache
-        - memcached
-        - etcd
-        - apache2
-        - libapache2-mod-wsgi
-        - mariadb-server
-        - rabbitmq-server
-        - neutron-server
-        - neutron-plugin-ml2
-        - neutron-linuxbridge-agent
-        - neutron-l3-agent
-        - neutron-dhcp-agent
-        - neutron-metadata-agent
-      state: present
-      update_cache: yes
+    apt:  pkg={{packages}} state=present update_cache=yes
     tags: pkg
 
 ## MySQL
@@ -140,23 +112,40 @@
       src=files/99-openstack.cnf.j2
       dest=/etc/mysql/mariadb.conf.d/99-openstack.cnf
       backup=yes
-    notify: restart-mysql
     tags: database
+    register: mysqlconfig
+
+  - name: reload mysql before next steps
+    service: 
+      name=mysql 
+      state=restarted
+    when: mysqlconfig.changed
+
+  # - name: link .my.cnf
+  #   file:
+  #     src=/etc/mysql/debian.cnf
+  #     dest=/root/.my.cnf
+  #     state=link
+  #   tags: database
 
   - name: create databases
     mysql_db:
       config_file=/etc/mysql/debian.cnf
       name={{ item }}
+      encoding=utf8
+      collation=utf8_general_ci
     with_items: "{{mysql_databases}}"
     tags: database
 
+# grant every user all privileges since ansible cant provide multiple grants thats needed for nova_cell0 etc.
   - name: create users
     mysql_user:
       config_file=/etc/mysql/debian.cnf
       name={{item}}
       host='%'
       password="{{ DATABASE_PASS }}"
-      priv='{{item}}.*:ALL'
+      priv='*.*:ALL'
+      # priv='{{item}}.*:ALL'
     with_items: "{{mysql_databases}}"
     tags: database
 
@@ -194,6 +183,7 @@
       backup=yes
     notify: restart-etcd
 
+#######################################################################
 ## Keystone
   - name: install keystone
     apt:  pkg=keystone state=present update_cache=yes
@@ -224,7 +214,7 @@
     tags: keystone
 
   - name: Populate the Identity service database
-    shell: su -s /bin/sh -c "keystone-manage db_sync" keystone
+    shell:  su -s /bin/sh -c "keystone-manage db_sync" keystone
     when: keystonetablecount.stdout|int < 10
     tags: keystone
 
@@ -234,7 +224,7 @@
        --keystone-group keystone
       keystone-manage credential_setup --keystone-user keystone \
        --keystone-group keystone
-    when: keystone.changed
+    when: firstrun is defined
     register: fernet
     tags: keystone
 
@@ -249,7 +239,7 @@
     become_user: root
     with_items: 
       - "{{ groups['control'] }}"
-    when: fernet.changed
+    when: firstrun is defined
     tags: keystone
 
   - name: configure keystone domains, roles and users
@@ -319,11 +309,12 @@
     - keystone_services
 
 
+#######################################################################
 ## Glance
   - name: install glance
     block:
-      - apt:  pkg=glance state=present update_cache=yes
-      - template:
+      - name: configure glance
+        template:
           src=files/{{item}}.j2
           dest=/etc/glance/{{item}}
           backup=yes
@@ -333,22 +324,23 @@
         notify: 
           - restart-glance-api
           - restart-glance-registry
-      - shell: 
+
+      - name: count glance tables
+        shell: |
           mysql -e "SELECT COUNT(*) FROM information_schema.tables \
           WHERE table_schema = 'glance';" -B  -N
         register: glancetablecount
-      - name: Populate database
+
+      - name: Populate glance database
         shell: su -s /bin/sh -c "glance-manage db_sync" glance
         when: glancetablecount.stdout|int < 10
     tags: glance
 
+
 #######################################################################
 ## Nova controller
-  - name: install nova
+  - name: configure nova
     block:
-      - name: install nova packages
-        apt:  pkg={{nova_packages}} state=present update_cache=yes
-
       - name: configure nova
         template:
           src=files/{{item}}.j2
@@ -362,13 +354,13 @@
           - restart-nova-scheduler
           - restart-nova-novncproxy
 
-      - name: count nova tables
+      - name: count nova api tables
         shell: |
           mysql -e "SELECT COUNT(*) FROM information_schema.tables \
           WHERE table_schema = 'nova_api';" -B  -N
         register: novaapitablecount
 
-      - name: Populate the Identity service database
+      - name: Populate the Nova API database
         shell: su -s /bin/sh -c "nova-manage api_db sync" nova
         when: novaapitablecount.stdout|int < 10
 
@@ -389,7 +381,7 @@
           - nova-novncproxy
         when: novatablecount.stdout|int < 10
 
-      - name: Populate databases
+      - name: Populate nova databases
         shell: |
           su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova
           su -s /bin/sh -c "nova-manage cell_v2 create_cell \
@@ -448,9 +440,9 @@
 
   - name: configure sysctl
     sysctl:
-      name: item.key
-      value: item.value
-    with_items:
+      name: "{{item.key}}"
+      value: "{{item.value}}"
+    with_dict:
       - net.bridge.bridge-nf-call-iptables: 1
       - net.bridge.bridge-nf-call-ip6tables: 1
     tags: neutron
@@ -462,6 +454,17 @@
     tags: neutron
 
 
+#######################################################################
+## Openstack-dashboard
+  - name: configure Openstack-dashboard
+    template:
+      src=files/openstack-dashboard/local_settings.py.j2
+      dest=/etc/openstack-dashboard/local_settings.py
+      backup=yes
+    notify: 
+      - restart-apache2
+
+
   handlers:
   - name: restart-mysql
     service: name=mysql state=restarted
@@ -469,8 +472,8 @@
     service: name=memcached state=restarted
   - name: restart-etcd
     service: name=etcd state=restarted
-  - name: restart-chrony
-    service: name=chrony state=restarted
+  - name: restart-apache2
+    service: name=apache2 state=restarted
 
   - name: restart-keystone
     service: name=keystone state=restarted
@@ -560,9 +563,52 @@
   - name: add compute nodes to cell database
     shell: |
       . ~/.adminrc && su -s /bin/sh -c "nova-manage cell_v2 \
-      discover_hosts --verbose" nova; exit 0
+      discover_hosts --verbose" nova
     when: firstrun is defined
     tags: compute
 
+  # - name: Create tiny flavor
+  #   os_nova_flavor:
+  #     cloud: "{{ooo}}"
+  #     state: present
+  #     name: tiny3
+  #     ram: 512
+  #     vcpus: 1
+  #     disk: 10
+  #     ephemeral: 10
+  #   tags: finalize
 
+  - name: download cirros image
+    get_url:
+      url: http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img
+      dest: ~/cirros-0.4.0-x86_64-disk.img
+    when: firstrun is defined
+    tags: finalize
+
+  - name: upload cirros image
+    shell: |
+      . ~/.adminrc && openstack image create "cirros" \
+        --file ~/cirros-0.4.0-x86_64-disk.img --disk-format qcow2 \
+        --container-format bare --public
+    when: firstrun is defined
+    tags: finalize
+
+  - name: get openstack services
+    shell: |
+      . ~/.adminrc 
+      openstack image list
+      openstack domain list
+      openstack project list
+      openstack user list
+      openstack compute service list
+      openstack image list
+    register: show_result
+    tags: 
+      - show_result
+      - finalize
+
+  - debug: var=show_result.stdout_lines
+    tags: 
+      - show_result
+      - finalize
 
