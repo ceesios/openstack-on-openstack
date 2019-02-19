@@ -22,11 +22,17 @@
 - hosts: all
   gather_facts: True
   tasks:
+  - debug: var=control_node_name
+    tags: debug
+
+  # - debug: var=control_node_ip_remote
+  #   tags: debug
+
   - name: "Build hosts file"
     lineinfile: 
       dest=/etc/hosts 
-      regexp='.*{{ item }}$' 
-      line="{{ hostvars[item].ansible_default_ipv4.address }} {{item}} {{ hostvars[item].ansible_hostname }}" 
+      regexp='{{ hostvars[item].ansible_default_ipv4.address }}.*' 
+      line="{{ hostvars[item].ansible_default_ipv4.address }} {{ hostvars[item].ansible_hostname }}" 
       state=present
     with_items: 
       - "{{ groups['all'] }}"
@@ -48,9 +54,9 @@
       update_cache: yes
       dpkg_options: 'force-confold,force-confdef'
     when: firstrun is defined
-    ##retry so we can user forking
+    ##retry so we can use forking
     register: apt_result
-    retries: 5 
+    retries: 10
     until: apt_result is success
 
   - name: ensure common packages are installed
@@ -63,7 +69,7 @@
       update_cache: yes
     ##retry so we can use forking
     register: apt_result
-    retries: 5 
+    retries: 10
     until: apt_result is success
 
   - name: configure chrony
@@ -72,6 +78,10 @@
       regexp='^allow'
       line='allow 10.0.0.0/24'
     notify: restart-chrony
+
+  - name: set timezone
+    timezone:
+      name: Europe/Bratislava
 
   - name: template adminrc on all nodes (might come in handy)
     template:
@@ -120,13 +130,6 @@
       name=mysql 
       state=restarted
     when: mysqlconfig.changed
-
-  # - name: link .my.cnf
-  #   file:
-  #     src=/etc/mysql/debian.cnf
-  #     dest=/root/.my.cnf
-  #     state=link
-  #   tags: database
 
   - name: create databases
     mysql_db:
@@ -231,10 +234,10 @@
   - name: Bootstrap the Identity service
     shell: |
       keystone-manage bootstrap --bootstrap-password {{ ADMIN_PASS }} \
-       --bootstrap-admin-url http://{{ hostvars[item].ansible_hostname }}:5000/v3/ \
-       --bootstrap-internal-url http://{{ hostvars[item].ansible_hostname }}:5000/v3/ \
-       --bootstrap-public-url http://{{ hostvars[item].ansible_hostname }}:5000/v3/ \
-       --bootstrap-region-id RegionOne; exit 0
+       --bootstrap-admin-url http://{{ control_node_ip }}:5000/v3/ \
+       --bootstrap-internal-url http://{{ control_node_ip }}:5000/v3/ \
+       --bootstrap-public-url http://{{ control_node_ip_remote }}:5000/v3/ \
+       --bootstrap-region-id RegionOne
     become: yes
     become_user: root
     with_items: 
@@ -440,12 +443,25 @@
 
   - name: configure sysctl
     sysctl:
-      name: "{{item.key}}"
-      value: "{{item.value}}"
+      name: item.key
+      value: item.value
     with_dict:
       - net.bridge.bridge-nf-call-iptables: 1
       - net.bridge.bridge-nf-call-ip6tables: 1
     tags: neutron
+    ##retry doesnt work, so ignore errors
+    ignore_errors: yes
+
+    ##and try again the ugly way
+  - name: configure sysctl
+    sysctl:
+      name: item.key
+      value: item.value
+    with_dict:
+      - net.bridge.bridge-nf-call-iptables: 1
+      - net.bridge.bridge-nf-call-ip6tables: 1
+    tags: neutron
+    ignore_errors: yes
 
   - name: ensure br_netfilter kernel module is available
     modprobe:
@@ -612,3 +628,20 @@
       - show_result
       - finalize
 
+  # - debug: "demo" user pass= "{{DEMO_PASS}}"
+  #   tags: 
+  #     - show_result
+  #     - finalize
+
+  # - debug: "myuser" user pass= "{{my_openstack_pass}}"
+  #   tags: 
+  #     - show_result
+  #     - finalize
+
+  - debug: |
+      "admin" user pass= "{{ ADMIN_PASS }}"
+      "myuser" user pass= "{{my_openstack_pass}}"
+      "demo" user pass= "{{DEMO_PASS}}"
+    tags: 
+      - show_result
+      - finalize

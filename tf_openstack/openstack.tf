@@ -1,5 +1,10 @@
+terraform {
+  required_version = "~> 0.11.7"
+}
+
 #Source your rc file to use env variables
 provider "openstack" {
+  version = "~> 1.14"
 }
 
 ## COMMON RESOURCES
@@ -13,6 +18,7 @@ provider "openstack" {
     name              = "${var.clustername}-mgmt-subnet"
     network_id        = "${openstack_networking_network_v2.mgmt-net.id}"
     cidr              = "${var.mgmt-cidr}"
+    dns_nameservers   = ["${var.dns_nameservers}"]
     ip_version        = 4
   }
 
@@ -58,13 +64,23 @@ provider "openstack" {
     network {
       name            = "${openstack_networking_network_v2.mgmt-net.name}"
     }
-    network {
-      name            = "${openstack_networking_network_v2.priv-net.name}"
+    # network {
+    #   name            = "${openstack_networking_network_v2.priv-net.name}"
+    # }
+
+    # Provision after associating a floating IP
+    connection {
+      user            = "ubuntu"
+      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
     }
+
     # Enter the bastion host into .ssh/config
     provisioner "local-exec" {
-      command =  <<EOT
-        echo 'Host ${var.clustername}-control ${openstack_networking_floatingip_v2.floatip_ctrl.address}
+      command = <<EOT
+        sed -i '/[T]F_BEGIN/,/[T]F_END/d' ~/.ssh/config
+
+        echo '# TF_BEGIN
+Host ${var.clustername}-control ${openstack_networking_floatingip_v2.floatip_ctrl.address}
 StrictHostKeyChecking no
 UserKnownHostsFile=/dev/null
 Hostname ${openstack_networking_floatingip_v2.floatip_ctrl.address}
@@ -75,7 +91,16 @@ StrictHostKeyChecking no
 UserKnownHostsFile=/dev/null
 User ubuntu
 ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh/config
+# TF_END
       EOT
+    }
+
+    provisioner "remote-exec" {
+      inline = [
+        "echo terraform executed > /tmp/foo",
+        "apt update",
+        "apt dist-upgrade -y"
+      ]
     }
   }
 
@@ -83,18 +108,7 @@ ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh
     floating_ip = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
     instance_id = "${openstack_compute_instance_v2.control.id}"
 
-    # Provision after associating a floating IP
-    connection {
-      type            = "ssh"
-      user            = "ubuntu"
-      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
-    }
 
-    provisioner "remote-exec" {
-      inline = [
-        "echo terraform executed > /tmp/foo",
-      ]
-    }
   }
 
 
@@ -102,7 +116,6 @@ ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh
   resource "openstack_compute_instance_v2" "compute" {
     count             = "${var.compute_count}"
     name              = "${var.clustername}-C1${element(var.nodenames, count.index % length(var.nodenames))}"
-#    availability_zone = "${element(var.azs, count.index)}"
     availability_zone = "${element(var.azs, count.index % length(var.azs))}"
     image_name        = "${var.image_name}"
     flavor_id         = "${var.flavor_id}" 
@@ -112,17 +125,23 @@ ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh
     network {
       name            = "${openstack_networking_network_v2.mgmt-net.name}"
     }
-    network {
-      name            = "${openstack_networking_network_v2.priv-net.name}"
-    }
+    # network {
+    #   name            = "${openstack_networking_network_v2.priv-net.name}"
+    # }
     # network {
     #   name            = "${var.provider-net-name}"
     # }
 
     connection {
-      type            = "ssh"
       user            = "ubuntu"
-      control_host    = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
+      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
     }
 
+    provisioner "remote-exec" {
+      inline = [
+        "echo terraform executed > /tmp/foo",
+        "apt update",
+        "apt dist-upgrade -y"
+      ]
+    }
   }
