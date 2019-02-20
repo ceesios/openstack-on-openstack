@@ -90,25 +90,32 @@ Host 10.0.0.*
 StrictHostKeyChecking no
 UserKnownHostsFile=/dev/null
 User ubuntu
-ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh/config
-# TF_END
+ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null
+# TF_END' >> ~/.ssh/config
       EOT
     }
 
-    provisioner "remote-exec" {
-      inline = [
-        "echo terraform executed > /tmp/foo",
-        "apt update",
-        "apt dist-upgrade -y"
-      ]
-    }
   }
 
   resource "openstack_compute_floatingip_associate_v2" "fip_control" {
     floating_ip = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
     instance_id = "${openstack_compute_instance_v2.control.id}"
 
+    connection {
+      type            = "ssh"
+      user            = "ubuntu"
+      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
+    }
 
+    provisioner "remote-exec" {
+      inline = [
+        "echo terraform executed > /tmp/foo",
+        "sleep 10",
+        "sudo apt update",
+        "sleep 10",
+        "sudo apt dist-upgrade -y &"
+      ]
+    }
   }
 
 
@@ -121,6 +128,7 @@ ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh
     flavor_id         = "${var.flavor_id}" 
     key_pair          = "${var.key_pair}"
 #    user_data         = "${file("common_user_data.sh")}"
+    depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
     security_groups   = ["${var.default_security_groups}"]
     network {
       name            = "${openstack_networking_network_v2.mgmt-net.name}"
@@ -140,8 +148,10 @@ ProxyCommand ssh ${var.clustername}-control exec nc %h %p 2>/dev/null' >> ~/.ssh
     provisioner "remote-exec" {
       inline = [
         "echo terraform executed > /tmp/foo",
-        "apt update",
-        "apt dist-upgrade -y"
+        "sleep 10",
+        "sudo apt update",
+        "sleep 10",
+        "sudo apt dist-upgrade -y &"
       ]
     }
   }
