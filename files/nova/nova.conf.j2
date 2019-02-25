@@ -8,6 +8,11 @@ my_ip = {{access_ip_v4}}
 use_neutron = true
 firewall_driver = nova.virt.firewall.NoopFirewallDriver
 
+## Enable for spice
+#web = /usr/share/spice-html5
+#vnc_enabled = False
+#novnc_enabled = False
+
 [api]
 auth_strategy = keystone
 
@@ -115,17 +120,30 @@ discover_hosts_in_cells_interval = 60
 
 [serial_console]
 [service_user]
-[spice]
 [upgrade_levels]
 [vault]
 [vendordata_dynamic_auth]
 [vmware]
 
+
+[spice]
+## Enable for spice
+#enabled = True
+#html5proxy_base_url = http://{{control_node_ip_remote}}:6082/spice_auto.html
+#keymap = en-us
+#server_listen = 0.0.0.0
+#server_proxyclient_address = $my_ip
+
+#agent_enabled = True
+#html5proxy_host = 0.0.0.0
+#html5proxy_port = 6082
+
 [vnc]
-enabled = true
+## Disable for spice
+enabled = True
 server_listen = 0.0.0.0
 server_proxyclient_address = $my_ip
-novncproxy_base_url = http://{{control_node_name}}:6080/vnc_auto.html
+novncproxy_base_url = http://{{control_node_ip_remote}}:6080/vnc_auto.html
 
 [workarounds]
 [wsgi]

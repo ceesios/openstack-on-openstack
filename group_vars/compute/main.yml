@@ -3,4 +3,5 @@
 packages:
   - nova-compute
   - neutron-linuxbridge-agent
+  # - spice-vdagent
   
