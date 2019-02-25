@@ -2,7 +2,7 @@
 [agent]
 
 [linux_bridge]
-physical_interface_mappings = provider:{{ansible_default_ipv4.interface}}
+physical_interface_mappings = provider:eth2
 
 [network_log]
 
@@ -12,5 +12,5 @@ firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
 
 [vxlan]
 enable_vxlan = true
-local_ip = {{ansible_default_ipv4}}
+local_ip = {{access_ip_v4}}
 l2_population = true
