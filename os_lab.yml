@@ -1,12 +1,16 @@
+## OpenStack on OpenStack lab setup
+## Author: Cees Moerkerken
+## 
+## Will create a virtual openstack setup on top of openstack
+##
 ## Run as
-## TF_STATE=./tf_openstack/terraform.tfstate ansible-playbook os_lab.yml  --extra-vars "firstrun=true" --start-at="retreive keystone table count"
+## TF_STATE=./tf_openstack/terraform.tfstate ansible-playbook os_lab.yml"
 ## When using a vault add: "--ask-vault-pass"
-
 
 ---
 
 ## install python via raw module
-- hosts: all
+- hosts: compute, control
   gather_facts: False
 
   tasks:
@@ -14,7 +18,7 @@
     raw: |
       test -e /usr/bin/python || \
        (sudo apt -y update && sudo apt install -y python-minimal)
-    when: firstrun is defined
+    tags: firstrun
 
 #######################################################################
 ## common stuff
@@ -22,21 +26,28 @@
 - hosts: all
   gather_facts: True
   tasks:
+  - name: "Ansible setup"
+    setup:
+    tags: always
+
+- hosts: compute, control
+  tasks:
   - name: "Build hosts file"
     lineinfile: 
       dest=/etc/hosts 
-      regexp='{{ hostvars[item].ansible_default_ipv4.address }}.*' 
-      line="{{ hostvars[item].ansible_default_ipv4.address }} {{ hostvars[item].ansible_hostname }}" 
+      regexp='{{ hostvars[item].access_ip_v4 }}.*' 
+      line="{{ hostvars[item].access_ip_v4 }} {{ hostvars[item].ansible_hostname }}" 
       state=present
     with_items: 
-      - "{{ groups['all'] }}"
-    when: firstrun is defined
+      - "{{ groups['compute'] }}"
+      - "{{ groups['control'] }}"
+    tags: firstrun
 
   - name: add-apt-repository
     shell: |
       add-apt-repository cloud-archive:rocky -y; apt-key adv \
        --keyserver keyserver.ubuntu.com --recv-keys 5EDB1B62EC4926EA
-    when: firstrun is defined
+    tags: firstrun
 
 #  - name: add-apt-repository rocky
 #    apt_repository:
@@ -47,7 +58,7 @@
       upgrade: dist
       update_cache: yes
       dpkg_options: 'force-confold,force-confdef'
-    when: firstrun is defined
+    tags: firstrun
     ##retry so we can use forking
     register: apt_result
     retries: 10
@@ -72,6 +83,11 @@
       regexp='^allow'
       line='allow 10.0.0.0/24'
     notify: restart-chrony
+
+  - name: configure vim (syntax highligt .conf files as ini)
+    lineinfile:
+      path=/etc/vim/vimrc
+      line='autocmd BufRead,BufNewFile *.conf setf dosini'
 
   - name: set timezone
     timezone:
@@ -127,6 +143,16 @@
 #######################################################################
 - hosts: control
   tasks:
+    ## Set facts by stripping "metadata." and joining with _ to replace dots
+  - name: Set fact from terraform metadata
+    set_fact:
+      "{{item.key.split('.')[1:10] | join('_') }}": "{{ item.value }}"
+    with_dict: "{{ hostvars[inventory_hostname] }}"
+    when: 
+      - '"metadata" in item.key'
+      - '"%" not in item.key'
+    tags: always
+
 ## pakages
   - name: ensure certain packages are installed on control
     apt:  pkg={{packages}} state=present update_cache=yes
@@ -169,6 +195,17 @@
     tags: database
 
 ## RabbitMQ
+  - rabbitmq_user:
+      user: guest
+      state: absent
+    tags: rabbitmq
+
+  - name: Enables the rabbitmq_management plugin
+    rabbitmq_plugin:
+      names: rabbitmq_management
+      state: enabled
+    tags: rabbitmq
+
   - name: add openstack user to rabbitmq
     rabbitmq_user:
       user: openstack
@@ -178,6 +215,19 @@
       read_priv: .*
       write_priv: .*
       state: present
+    tags: rabbitmq
+
+  - name: add admin user to rabbitmq
+    rabbitmq_user:
+      user: admin
+      password: "{{RABBIT_PASS}}"
+      vhost: /
+      configure_priv: .*
+      read_priv: .*
+      write_priv: .*
+      tags: administrator
+      state: present
+    tags: rabbitmq
 
 ## Memcached
   - name: template memcached.conf
@@ -242,23 +292,28 @@
        --keystone-group keystone
       keystone-manage credential_setup --keystone-user keystone \
        --keystone-group keystone
-    when: firstrun is defined
     register: fernet
-    tags: keystone
+    when: keystonetablecount.stdout|int < 10
+    tags: 
+      - keystone
+      - firstrun
 
   - name: Bootstrap the Identity service
     shell: |
       keystone-manage bootstrap --bootstrap-password {{ ADMIN_PASS }} \
-       --bootstrap-admin-url http://{{ control_node_ip }}:5000/v3/ \
-       --bootstrap-internal-url http://{{ control_node_ip }}:5000/v3/ \
+       --bootstrap-admin-url http://{{ control_node_name }}:5000/v3/ \
+       --bootstrap-internal-url http://{{ control_node_name }}:5000/v3/ \
        --bootstrap-public-url http://{{ control_node_ip_remote }}:5000/v3/ \
        --bootstrap-region-id RegionOne
     become: yes
     become_user: root
+    failed_when: "'FAILED' in command_result.stderr"
+    when: keystonetablecount.stdout|int < 10
     with_items: 
       - "{{ groups['control'] }}"
-    when: firstrun is defined
-    tags: keystone
+    tags: 
+      - keystone
+      - firstrun
 
   - name: configure keystone domains, roles and users
     block:
@@ -430,7 +485,7 @@
       with_items:
         - neutron/neutron.conf
         - neutron/plugins/ml2/ml2_conf.ini
-        - neutron/plugins/ml2/linuxbridge_agent.ini
+#        - neutron/plugins/ml2/linuxbridge_agent.ini
         - neutron/l3_agent.ini
         - neutron/dhcp_agent.ini
         - neutron/metadata_agent.ini
@@ -538,7 +593,10 @@
       - neutron/plugins/ml2/linuxbridge_agent.ini
     notify: 
       - restart-neutron-linuxbridge-agent
-    tags: compute
+      - restart-nova-compute
+    tags:
+      - compute
+      - neutron
 
   - name: ensure br_netfilter kernel module is available
     modprobe:
@@ -549,57 +607,49 @@
   handlers:
   - name: restart-neutron-linuxbridge-agent
     service: name=neutron-linuxbridge-agent state=restarted
+  - name: restart-nova-compute
+    service: name=nova-compute state=restarted
 
 
 #######################################################################
-## Finish up control nodes
+## Finish up control nodes (
+## Use hosts: control (internal ip) because thats where the metadata is
 #######################################################################
 
 - hosts: control
   tasks:
-  - name: start all service
-    block:
-      - name: start-apache2
-        service: name=apache2 state=started
-      - name: start-chrony
-        service: name=chrony state=started
-      - name: start-etcd
-        service: name=etcd state=started
-      - name: start-glance-api
-        service: name=glance-api state=started
-      - name: start-glance-registry
-        service: name=glance-registry state=started
-      - name: start-memcached
-        service: name=memcached state=started
-      - name: start-mysql
-        service: name=mysql state=started
-      - name: start-neutron-dhcp-agent
-        service: name="neutron-dhcp-agent" state=started
-      - name: start-neutron-l3-agent
-        service: name="neutron-l3-agent" state=started
-      - name: start-neutron-linuxbridge-agent
-        service: name="neutron-linuxbridge-agent" state=started
-      - name: start-neutron-metadata-agent
-        service: name="neutron-metadata-agent" state=started
-      - name: start-neutron-server
-        service: name="neutron-server" state=started
-      - name: start-nova-api
-        service: name="nova-api" state=started
-      - name: start-nova-conductor
-        service: name="nova-conductor" state=started
-      - name: start-nova-novncproxy
-        service: name="nova-novncproxy" state=started
-      - name: start-nova-scheduler
-        service: name="nova-scheduler" state=started
+  - name: make sure all services are started
+    service: 
+      name={{item}} 
+      state=started
+    with_items:
+      - apache2 
+      - chrony 
+      - etcd 
+      - glance-api 
+      - glance-registry 
+      - memcached 
+      - mysql 
+      - "neutron-dhcp-agent" 
+      - "neutron-l3-agent" 
+      - "neutron-linuxbridge-agent" 
+      - "neutron-metadata-agent" 
+      - "neutron-server" 
+      - "nova-api" 
+      - "nova-conductor" 
+      - "nova-novncproxy" 
+      - "nova-scheduler" 
     tags: finalize
 
   - name: add compute nodes to cell database
     shell: |
       . ~/.adminrc && su -s /bin/sh -c "nova-manage cell_v2 \
       discover_hosts --verbose" nova
-    when: firstrun is defined
-    tags: compute
+    tags:
+      - compute
+      - firstrun
 
+  ### werkt niet om een of andere reden, endpoint not found?
   # - name: Create tiny flavor
   #   os_nova_flavor:
   #     cloud: "{{ooo}}"
@@ -607,15 +657,44 @@
   #     name: tiny3
   #     ram: 512
   #     vcpus: 1
-  #     disk: 10
   #     ephemeral: 10
+  #     disk: 10
+  #     endpoint_type: public
   #   tags: finalize
+
+  - name: Create a net-public
+    os_network:
+      cloud: "{{ooo}}"
+#      state: present
+      name: net-public
+      project: admin
+      provider_network_type: flat
+      provider_physical_network: provider
+#      provider_segmentation_id:
+      shared: true
+      external: true
+    tags: finalize
+
+  - name: Create subnet-public
+    os_subnet:
+      cloud: "{{ooo}}"
+      name: subnet-public
+      network_name: "net-public"
+#      host_routes: 
+      gateway_ip: "{{ pub_gw }}"
+      # allocation_pool_start:
+      # allocation_pool_end:
+      cidr: "{{ pub_cidr }}"
+
+      # dns_nameservers:
+    tags: finalize
+
+
 
   - name: download cirros image
     get_url:
       url: http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img
       dest: ~/cirros-0.4.0-x86_64-disk.img
-    when: firstrun is defined
     tags: finalize
 
   - name: upload cirros image
@@ -623,7 +702,6 @@
       . ~/.adminrc && openstack image create "cirros" \
         --file ~/cirros-0.4.0-x86_64-disk.img --disk-format qcow2 \
         --container-format bare --public
-    when: firstrun is defined
     tags: finalize
 
   - name: get openstack services
@@ -635,6 +713,7 @@
       openstack user list
       openstack compute service list
       openstack image list
+      openstack endpoint list --sort-column "Service Name" --sort-column "Interface"
     register: show_result
     tags: 
       - show_result
@@ -649,8 +728,8 @@
       msg:
       - "domain          = default"
       - "admin user pass = {{ ADMIN_PASS }}"
-      - "myuser user pass= {{my_openstack_pass}}"
-      - "demo user pass  = {{DEMO_PASS}}"
+      - "myuser user pass= {{ MYUSER_PASS }}"
+      - "demo user pass  = {{ DEMO_PASS }}"
       - "horizon url     = http://{{control_node_ip_remote}}/horizon"
     tags: 
       - show_result
