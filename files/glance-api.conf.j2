@@ -3,7 +3,7 @@
 [cors]
 
 [database]
-connection = mysql+pymysql://glance:{{DATABASE_PASS}}@{{ansible_default_ipv4.address}}/glance
+connection = mysql+pymysql://glance:{{DATABASE_PASS}}@{{access_ip_v4}}/glance
 backend = sqlalchemy
 
 [glance_store]

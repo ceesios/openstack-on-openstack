@@ -16,7 +16,7 @@ log_dir = /var/log/keystone
 [credential]
 
 [database]
-connection = mysql+pymysql://keystone:{{DATABASE_PASS}}@{{ansible_default_ipv4.address}}/keystone
+connection = mysql+pymysql://keystone:{{DATABASE_PASS}}@{{access_ip_v4}}/keystone
 
 [domain_config]
 

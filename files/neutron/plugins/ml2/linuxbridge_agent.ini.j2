@@ -12,5 +12,5 @@ firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
 
 [vxlan]
 enable_vxlan = true
-local_ip = {{ansible_default_ipv4.address}}
+local_ip = {{ansible_default_ipv4}}
 l2_population = true
