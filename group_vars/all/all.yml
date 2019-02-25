@@ -1,7 +1,5 @@
 ---
 
-ansible_sudo_pass: "{{ my_sudo_pass }}"
-#control_node_name: "os-lab-control"
 control_node_name: "{{ hostvars[groups['control'][0]].ansible_hostname }}"
 control_node_ip: "{{ hostvars[groups['fip_control'][0]]['ansible_eth0']['ipv4']['address'] }}"
 control_node_ip_remote: "{{ hostvars[groups['fip_control'][0]]['groups']['fip_control'][0] }}"

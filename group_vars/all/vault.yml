@@ -1,7 +1,6 @@
 --- 
 
-my_sudo_pass: "ubuntu"
-my_openstack_pass: "Welkom01!"
+MYUSER_PASS: "Welkom01!"
 
 ## Generated with "openssl rand -hex 10"
 RABBIT_PASS: "058a14a8daf165b18bae"
