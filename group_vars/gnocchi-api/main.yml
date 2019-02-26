@@ -1,0 +1,14 @@
+---
+
+#gnocchi_api
+packages:
+  - apache2
+  - gnocchi-api
+  - gnocchi-common
+  - python-gnocchiclient
+  - libapache2-mod-wsgi-py3
+
+#gnocchi_metricd
+  - gnocchi-common
+  - gnocchi-metricd
+  - python-gnocchiclient

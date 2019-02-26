@@ -8,6 +8,49 @@ provider "openstack" {
 }
 
 ## COMMON RESOURCES
+  # Secgroup
+  resource "openstack_compute_secgroup_v2" "secgroup1" {
+    name        = "${var.clustername}secgroup1"
+    description = "${var.clustername} security group"
+
+    rule {
+      from_port   = 22
+      to_port     = 22
+      ip_protocol = "tcp"
+      cidr        = "0.0.0.0/0"
+    }
+    rule {
+      from_port   = 80
+      to_port     = 80
+      ip_protocol = "tcp"
+      cidr        = "0.0.0.0/0"
+    }
+    rule {
+      from_port   = 443
+      to_port     = 443
+      ip_protocol = "tcp"
+      cidr        = "0.0.0.0/0"
+    }
+    rule {
+      from_port   = 6080
+      to_port     = 6080
+      ip_protocol = "tcp"
+      cidr        = "0.0.0.0/0"
+    }
+    rule {
+      from_port   = 8000
+      to_port     = 9999
+      ip_protocol = "tcp"
+      cidr        = "0.0.0.0/0"
+    }
+    rule {
+      from_port   = 15672
+      to_port     = 15672
+      ip_protocol = "tcp"
+      cidr        = "0.0.0.0/0"
+    }
+  }
+
   # MGMT Net
   resource "openstack_networking_network_v2" "mgmt-net" {
     name              = "${var.clustername}-mgmt-net"
@@ -83,7 +126,7 @@ provider "openstack" {
     image_name        = "${var.image_name}"
     flavor_id         = "${var.flavor_id}" 
     key_pair          = "${var.key_pair}"
-    security_groups   = ["${var.security_groups}"]
+    security_groups   = ["${var.security_groups}", "${openstack_compute_secgroup_v2.secgroup1.name}"]
     network {
       name            = "${openstack_networking_network_v2.mgmt-net.name}"
     }
@@ -183,6 +226,38 @@ provider "openstack" {
     network {
       name            = "${var.pub_net_name}"
       port            = "${element(openstack_networking_port_v2.port_pub.*.id, count.index)}"
+    }
+
+    connection {
+      user            = "ubuntu"
+      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
+    }
+
+    provisioner "remote-exec" {
+      inline = [
+        "echo terraform executed > /tmp/foo",
+        "sleep 10",
+        "sudo apt update",
+        "sleep 10",
+        "sudo apt dist-upgrade -y &"
+      ]
+    }
+  }
+
+
+## Gnocchi
+  # Gnocchi api nodes
+  resource "openstack_compute_instance_v2" "gnocchi-api" {
+    count             = "${var.gnocchi_api_count}"
+    name              = "${var.clustername}-GN-API${element(var.nodenames, count.index % length(var.nodenames))}"
+    availability_zone = "${element(var.azs, count.index % length(var.azs))}"
+    image_name        = "${var.image_name}"
+    flavor_id         = "${var.flavor_id}" 
+    key_pair          = "${var.key_pair}"
+    security_groups   = ["${var.security_groups}"]
+    depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
+    network {
+      name            = "${openstack_networking_network_v2.mgmt-net.name}"
     }
 
     connection {

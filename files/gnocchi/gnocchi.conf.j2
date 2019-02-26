@@ -1,0 +1,34 @@
+[DEFAULT]
+[api]
+auth_mode = keystone
+
+[archive_policy]
+[cors]
+[healthcheck]
+[incoming]
+
+[indexer]
+url = mysql+pymysql://gnocchi:{{DATABASE_PASS}}@{{control_node_name}}/gnocchi
+
+[keystone_authtoken]
+www_authenticate_uri = http://{{control_node_name}}:5000
+auth_url = http://{{control_node_name}}:5000
+memcached_servers = {{control_node_name}}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = gnocchi
+password = {{GNOCCHI_PASS}}
+
+[metricd]
+[oslo_middleware]
+[oslo_policy]
+[statsd]
+
+[storage]
+# coordination_url is not required but specifying one will improve
+# performance with better workload division across workers.
+coordination_url = redis://{{control_node_name}}:6379
+file_basepath = /var/lib/gnocchi
+driver = file

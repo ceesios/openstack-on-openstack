@@ -1,0 +1,54 @@
+# Managed by ansible, please do not edit manually as your
+# changes are overwritten.
+
+global
+    log 127.0.0.1   local0 err
+    log 127.0.0.1   local1 err
+    stats socket     /var/run/haproxy.sock mode 0600 level admin
+    maxconn         4096
+    user            haproxy
+    group           haproxy
+    daemon
+
+defaults
+    log             global
+    mode            tcp
+    option          tcplog
+    retries         3
+    maxconn         20000
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+
+frontend gnocchi-in
+    mode http
+    bind *:8041
+    default_backend gnocchi
+
+backend gnocchi
+    mode http
+{% for host in groups['gnocchi-api'] %}
+    server {{ host }} {{ hostvars[host]['ansible_eth0']['ipv4']['address'] }}:8041
+{% endfor %}
+
+frontend Statistics
+    mode http
+    bind 0.0.0.0:8000
+    option contstats
+    default_backend HAProxy-Statistics
+
+userlist UsersFor_HAProxyStatistics
+    group admin users admin
+    user admin insecure-password {{ ADMIN_PASS }}
+
+backend HAProxy-Statistics
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats show-node
+    stats show-legends
+    acl AuthOkay_ReadOnly http_auth(UsersFor_HAProxyStatistics)
+    acl AuthOkay_Admin http_auth_group(UsersFor_HAProxyStatistics) admin
+    stats http-request auth realm HAProxy-Statistics unless AuthOkay_ReadOnly
+    stats admin if AuthOkay_Admin

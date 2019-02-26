@@ -1,0 +1,36 @@
+[DEFAULT]
+transport_url = rabbit://openstack:{{RABBIT_PASS}}@{{control_node_name}}
+
+[compute]
+[coordination]
+[event]
+[hardware]
+[ipmi]
+[matchmaker_redis]
+[meter]
+[notification]
+[oslo_concurrency]
+[oslo_messaging_amqp]
+[oslo_messaging_kafka]
+[oslo_messaging_notifications]
+[oslo_messaging_rabbit]
+[oslo_messaging_zmq]
+[polling]
+[publisher]
+[publisher_notifier]
+[rgw_admin_credentials]
+[rgw_client]
+
+[service_credentials]
+auth_url = http://{{control_node_name}}:5000
+memcached_servers = {{control_node_name}}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = ceilometer
+password = {{CEILOMETER_PASS}}
+
+[service_types]
+[vmware]
+[xenapi]

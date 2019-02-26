@@ -1,0 +1,142 @@
+
+---
+sources:
+    - name: meter_source
+      interval: 3600
+      meters:
+          - "compute.instance.booting.time"
+          - "cpu"
+          - "cpu_util"
+          - "image"
+          - "image.delete"
+          - "image.size"
+          - "instance"
+          - "ip.floating"
+          - "ip.floating.create"
+          - "ip.floating.update"
+          - "memory"
+          - "memory.resident"
+          - "memory.usage"
+          - "network.services.lb.health_monitor"
+          - "network.services.lb.loadbalancer"
+          - "network.services.lb.member"
+          - "network.services.lb.member.create"
+          - "network.services.lb.pool"
+          - "network.services.lb.pool.create"
+          - "port"
+          - "port.create"
+          - "port.update"
+          - "router"
+          - "router.create"
+          - "router.update"
+          - "snapshot"
+          - "snapshot.create.end"
+          - "snapshot.create.start"
+          - "snapshot.delete.end"
+          - "snapshot.delete.start"
+          - "snapshot.exists"
+          - "snapshot.size"
+          - "vcpus"
+          - "volume"
+          - "volume.create.end"
+          - "volume.create.start"
+          - "volume.delete.end"
+          - "volume.delete.start"
+          - "volume.exists"
+          - "volume.resize.end"
+          - "volume.resize.start"
+          - "volume.size"
+      sinks:
+          - meter_sink
+
+    ## Added for fun
+    - name: cpu_source
+      meters:
+          - "cpu"
+      sinks:
+          - cpu_sink
+          - cpu_delta_sink
+    - name: disk_source
+      meters:
+          - "disk.read.bytes"
+          - "disk.read.requests"
+          - "disk.write.bytes"
+          - "disk.write.requests"
+          - "disk.device.read.bytes"
+          - "disk.device.read.requests"
+          - "disk.device.write.bytes"
+          - "disk.device.write.requests"
+      sinks:
+          - disk_sink
+    - name: network_source
+      meters:
+          - "network.incoming.bytes"
+          - "network.incoming.packets"
+          - "network.outgoing.bytes"
+          - "network.outgoing.packets"
+      sinks:
+          - network_sink
+
+sinks:
+    - name: meter_sink
+      transformers:
+      publishers:
+        # set address of Gnocchi
+        # + filter out Gnocchi-related activity meters (Swift driver)
+        # + set default archive policy
+        - gnocchi://?filter_project=service&archive_policy=low
+
+
+    - name: cpu_sink
+      transformers:
+          - name: "rate_of_change"
+            parameters:
+                target:
+                    name: "cpu_util"
+                    unit: "%"
+                    type: "gauge"
+                    max: 100
+                    scale: "100.0 / (10**9 * (resource_metadata.cpu_number or 1))"
+      publishers:
+        - notifier://
+        - gnocchi://?filter_project=service&archive_policy=low
+    - name: cpu_delta_sink
+      transformers:
+          - name: "delta"
+            parameters:
+                target:
+                    name: "cpu.delta"
+                growth_only: True
+      publishers:
+          - gnocchi://?filter_project=service&archive_policy=low
+          - notifier://
+    - name: disk_sink
+      transformers:
+          - name: "rate_of_change"
+            parameters:
+                source:
+                    map_from:
+                        name: "(disk\\.device|disk)\\.(read|write)\\.(bytes|requests)"
+                        unit: "(B|request)"
+                target:
+                    map_to:
+                        name: "\\1.\\2.\\3.rate"
+                        unit: "\\1/s"
+                    type: "gauge"
+      publishers:
+          - gnocchi://?filter_project=service&archive_policy=low
+          - notifier://
+    - name: network_sink
+      transformers:
+          - name: "rate_of_change"
+            parameters:
+                source:
+                   map_from:
+                       name: "network\\.(incoming|outgoing)\\.(bytes|packets)"
+                       unit: "(B|packet)"
+                target:
+                    map_to:
+                        name: "network.\\1.\\2.rate"
+                        unit: "\\1/s"
+                    type: "gauge"
+    

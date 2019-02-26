@@ -3,5 +3,7 @@
 packages:
   - nova-compute
   - neutron-linuxbridge-agent
+  - ceilometer-agent-compute
+  # - ceilometer-agent-ipmi
   # - spice-vdagent
   

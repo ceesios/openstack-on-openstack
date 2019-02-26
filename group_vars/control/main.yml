@@ -2,7 +2,11 @@
 
 packages:
   - apache2
+  - ceilometer-agent-notification
+  - ceilometer-agent-central
   - etcd
+  - fail2ban
+  - haproxy
   - glance
   - libapache2-mod-wsgi
   - mariadb-server
@@ -19,9 +23,12 @@ packages:
   - nova-placement-api  
   - nova-scheduler
   - openstack-dashboard
+  - php-myadmin
   - python-memcache
   - python-pymysql
+  - python-gnocchiclient
   - rabbitmq-server
+  - redis
   # - nova-spiceproxy
   # - spice-html5
 
@@ -41,6 +48,7 @@ mysql_databases:
   - nova_cell0
   - placement
   - neutron
+  - gnocchi
 
 
 keystone_domains:
@@ -60,23 +68,28 @@ keystone_services:
   glance:
     type: image
     description: "OpenStack Image"
-    interface: public
-    region: "RegionOne"
+    # interface: public
+    # region: "RegionOne"
   nova:
     type: compute
     description: "OpenStack Compute"
-    interface: public
-    region: "RegionOne"
+    # interface: public
+    # region: "RegionOne"
   placement:
     type: placement
     description: "Placement API"
-    interface: public
-    region: "RegionOne"
+    # interface: public
+    # region: "RegionOne"
   neutron:
     type: network
     description: "OpenStack Networking" 
-    interface: public
-    region: "RegionOne"
+    # interface: public
+    # region: "RegionOne"
+  gnocchi:
+    type: metric
+    description: "Metric Service" 
+    # interface: public
+    # region: "RegionOne"
 
 
 keystone_endpoints:
@@ -132,12 +145,25 @@ keystone_endpoints:
     interface: admin 
     url: http://os-lab-control:9696
 
+  - region: RegionOne
+    service: gnocchi
+    interface: public 
+    url: http://{{control_node_ip_remote}}:8041
+  - region: RegionOne
+    service: gnocchi
+    interface: internal 
+    url: http://os-lab-control:8041
+  - region: RegionOne
+    service: gnocchi
+    interface: admin 
+    url: http://os-lab-control:8041
+
 
 keystone_users:
   demo:
     pass: '{{DEMO_PASS}}'
     project: myproject
-    role: myrole
+    role: member
   myuser:
     pass: '{{MYUSER_PASS}}'
     project: myproject
@@ -160,5 +186,13 @@ keystone_users:
     role: admin
   cinder:
     pass: '{{CINDER_PASS}}'
+    project: service
+    role: admin
+  ceilometer:
+    pass: '{{ CEILOMETER_PASS }}'
+    project: service
+    role: admin
+  gnocchi:
+    pass: '{{GNOCCHI_PASS}}'
     project: service
     role: admin

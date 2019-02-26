@@ -1,4 +1,5 @@
 [DEFAULT]
+transport_url = rabbit://openstack:{{RABBIT_PASS}}@{{control_node_name}}
 
 [database]
 connection = mysql+pymysql://glance:{{DATABASE_PASS}}@{{access_ip_v4}}/glance
@@ -19,6 +20,8 @@ password = {{GLANCE_PASS}}
 [oslo_messaging_amqp]
 [oslo_messaging_kafka]
 [oslo_messaging_notifications]
+driver = messagingv2
+
 [oslo_messaging_rabbit]
 [oslo_messaging_zmq]
 [oslo_policy]

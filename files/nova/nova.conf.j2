@@ -13,6 +13,10 @@ firewall_driver = nova.virt.firewall.NoopFirewallDriver
 #vnc_enabled = False
 #novnc_enabled = False
 
+instance_usage_audit = True
+instance_usage_audit_period = hour
+notify_on_state_change = vm_and_task_state
+
 [api]
 auth_strategy = keystone
 
@@ -90,6 +94,8 @@ lock_path = /var/lib/nova/tmp
 [oslo_messaging_amqp]
 [oslo_messaging_kafka]
 [oslo_messaging_notifications]
+driver = messagingv2
+
 [oslo_messaging_rabbit]
 [oslo_messaging_zmq]
 [oslo_middleware]

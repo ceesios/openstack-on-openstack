@@ -2,6 +2,7 @@
 ## Author: Cees Moerkerken
 ## 
 ## Will create a virtual openstack setup on top of openstack
+## Only intended for testing purposes!!!
 ##
 ## Run as
 ## TF_STATE=./tf_openstack/terraform.tfstate ansible-playbook os_lab.yml"
@@ -10,7 +11,7 @@
 ---
 
 ## install python via raw module
-- hosts: compute, control
+- hosts: compute, control, gnocchi-api
   gather_facts: False
 
   tasks:
@@ -30,7 +31,7 @@
     setup:
     tags: always
 
-- hosts: compute, control
+- hosts: compute, control, gnocchi-api
   tasks:
   - name: "Build hosts file"
     lineinfile: 
@@ -41,7 +42,10 @@
     with_items: 
       - "{{ groups['compute'] }}"
       - "{{ groups['control'] }}"
-    tags: firstrun
+      - "{{ groups['gnocchi-api'] }}"
+    tags: 
+      - firstrun
+      - hostsfile
 
   - name: add-apt-repository
     shell: |
@@ -93,22 +97,22 @@
     timezone:
       name: Europe/Bratislava
 
-  - name: template adminrc on all nodes (might come in handy)
+  - name: template rc files on all nodes (might come in handy)
     template:
-      src=files/adminrc.j2
-      dest={{item}}
+      src=files/{{item}}.j2
+      dest=/home/ubuntu/{{item}}
       backup=yes
     with_items:
-      - /root/.adminrc
-      - /home/ubuntu/.adminrc
+      - adminrc
+      - userrc
+      - demorc
     tags: rc
 
   - name: add adminrc to bashrc on all nodes
     lineinfile:
       path={{item}}
-      line='. ~/.adminrc'
+      line='. ~/adminrc'
     with_items:
-      - /root/.bashrc
       - /home/ubuntu/.bashrc
     tags: rc
 
@@ -119,8 +123,10 @@
     with_dict:
       - net.bridge.bridge-nf-call-iptables: 1
       - net.bridge.bridge-nf-call-ip6tables: 1
-    tags: neutron
-    ##retry doesnt work, so ignore errors
+      - vm.overcommit_memory: 1
+      - net.core.somaxconn: 1
+    tags: sysctl
+    ##fails and retry doesnt work, so ignore errors
     ignore_errors: yes
 
     ##and try again the ugly way
@@ -131,7 +137,9 @@
     with_dict:
       - net.bridge.bridge-nf-call-iptables: 1
       - net.bridge.bridge-nf-call-ip6tables: 1
-    tags: neutron
+      - vm.overcommit_memory: 1
+      - net.core.somaxconn: 1
+    tags: sysctl
     ignore_errors: yes
 
   handlers:
@@ -156,7 +164,21 @@
 ## pakages
   - name: ensure certain packages are installed on control
     apt:  pkg={{packages}} state=present update_cache=yes
-    tags: pkg
+    tags: packages
+
+## Configure haproxy
+  - name: template haproxy.cfg
+    template:
+      src=files/haproxy.cfg.j2
+      dest=/etc/haproxy/haproxy.cfg
+      mode=0640
+      owner=root
+      group=root
+      backup=yes
+      validate='haproxy -c -f %s'
+    notify: reload-haproxy
+    tags: haproxy
+
 
 ## MySQL
   - name: template 99-openstack.cnf
@@ -229,6 +251,35 @@
       state: present
     tags: rabbitmq
 
+## Redis
+  - name: template redis.conf
+    template:
+      src=files/redis.conf.j2
+      dest=/etc/redis/redis.conf
+      backup=yes
+    notify: restart-redis
+    tags: redis
+
+  - name: chmod /var/lib/redis/ directory
+    file:
+      path: /var/lib/redis/
+      state: directory
+      owner: redis
+      group: redis
+      mode: 0775
+    notify: restart-redis
+    tags: redis
+
+  - name: chmod /var/lib/redis/dump.rdb
+    file:
+      path: /var/lib/redis/dump.rdb
+      state: file
+      owner: redis
+      group: redis
+      mode: 0644
+    notify: restart-redis
+    tags: redis
+
 ## Memcached
   - name: template memcached.conf
     template:
@@ -279,12 +330,16 @@
       mysql -e "SELECT COUNT(*) FROM information_schema.tables \
       WHERE table_schema = 'keystone';" -B  -N
     register: keystonetablecount
-    tags: keystone
+    tags: 
+      - keystone
+      - firstrun
 
   - name: Populate the Identity service database
     shell:  su -s /bin/sh -c "keystone-manage db_sync" keystone
     when: keystonetablecount.stdout|int < 10
-    tags: keystone
+    tags: 
+      - keystone
+      - firstrun
 
   - name: Initialize Fernet key repositories
     shell: |
@@ -534,11 +589,16 @@
       - restart-apache2
 
 
+
   handlers:
+  - name: reload-haproxy
+    service: name=haproxy state=reloaded
   - name: restart-mysql
     service: name=mysql state=restarted
   - name: restart-memcached
     service: name=memcached state=restarted
+  - name: restart-redis
+    service: name=redis state=restarted
   - name: restart-etcd
     service: name=etcd state=restarted
   - name: restart-apache2
@@ -571,7 +631,74 @@
   - name: restart-neutron-l3-agent
     service: name="neutron-l3-agent" state=restarted
 
+#######################################################################
+## Gnocchi
+- hosts: gnocchi-api
+  tasks:
+## pakages
+  - name: install gnocchi packages
+    apt:  pkg={{packages}} state=present update_cache=yes
+    tags: gnocchi
 
+  - name: chown /var/lib/gnocchi directory
+    file:
+      path: /var/lib/gnocchi/tmp
+      state: directory
+      owner: gnocchi
+      group: gnocchi
+      mode: 0775
+
+  
+  - name: configure gnocchi
+    template:
+      src=files/{{item}}.j2
+      dest=/etc/{{item}}
+      backup=yes
+    with_items:
+      - gnocchi/gnocchi.conf
+    notify: 
+      - init-gnocchi
+      # - restart-gnocchi-api
+      - restart-gnocchi-metricd
+      - restart-apache2
+    tags: gnocchi
+
+  handlers:
+  - name: restart-apache2
+    service: name=apache2 state=restarted
+  - name: init-gnocchi
+    shell: gnocchi-upgrade
+  # - name: restart-gnocchi-api
+  #   service: name="gnocchi-api" state=restarted
+  - name: restart-gnocchi-metricd
+    service: name="gnocchi-metricd" state=restarted
+
+
+#######################################################################
+## Ceilometer
+- hosts: control
+  tasks:
+  - name: configure ceilometer
+    template:
+      src=files/{{item}}.j2
+      dest=/etc/{{item}}
+      backup=yes
+    with_items:
+      - ceilometer/ceilometer.conf
+      - ceilometer/pipeline.yaml
+    notify: 
+      - init-ceilometer
+      - restart-ceilometer-agent-central
+      - restart-ceilometer-agent-notification
+    tags: ceilometer
+
+  handlers:
+  - name: init-ceilometer
+    shell: ceilometer-upgrade
+  - name: restart-ceilometer-agent-central
+    service: name="ceilometer-agent-central" state=restarted
+  - name: restart-ceilometer-agent-notification
+    service: name="ceilometer-agent-notification" state=restarted
 
 #######################################################################
 ## Compute nodes
@@ -580,9 +707,25 @@
 - hosts: compute
   tasks:
 ## pakages
-  - name: install nova packages
+  - name: install copute-node packages
     apt:  pkg={{packages}} state=present update_cache=yes
-    tags: compute
+    tags: compute-node
+
+## Configure ceilometer
+  - name: configure ceilometer
+    template:
+      src=files/{{item}}.j2
+      dest=/etc/{{item}}
+      backup=yes
+    with_items:
+      - ceilometer/ceilometer.conf
+    notify: 
+      - restart-ceilometer-agent-compute
+      # - restart-ceilometer-agent-ipmi
+      - restart-nova-compute
+    tags:
+      - ceilometer
+      - compute-node
 
 ## Configure nova & neutron
   - name: configure nova & neutron
@@ -599,7 +742,7 @@
       - restart-neutron-linuxbridge-agent
       - restart-nova-compute
     tags:
-      - compute
+      - compute-node
       - nova
       - neutron
 
@@ -607,9 +750,13 @@
     modprobe:
       name: br_netfilter
       state: present
-    tags: compute
+    tags: compute-node
 
   handlers:
+  - name: restart-ceilometer-agent-compute
+    service: name=ceilometer-agent-compute state=restarted
+  # - name: restart-ceilometer-agent-ipmi
+  #   service: name=ceilometer-agent-ipmi state=restarted
   - name: restart-neutron-linuxbridge-agent
     service: name=neutron-linuxbridge-agent state=restarted
   - name: restart-nova-compute

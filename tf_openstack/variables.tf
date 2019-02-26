@@ -6,7 +6,7 @@ variable "azs" {
 }
 variable "image_name"       { default = "Ubuntu 18.04 (LTS)", type = "string"}
 variable "flavor_id"        { default = "2016", type = "string"}
-variable "security_groups"  { default = ["default", "allow-all"], type = "list"}
+variable "security_groups"  { default = ["default"], type = "list"}
 variable "floating_ip_pool" { default = "floating", type = "string"}
 variable "floating_net_id"  { default = "f9c73cd5-9e7b-4bfd-89eb-c2f4f584c326", type = "string"}
 
@@ -30,6 +30,8 @@ variable "pub_gw"           { default = "10.2.0.1/16" }
 
 variable "control_count"    { default = 1 }
 variable "compute_count"    { default = 3 }
+variable "gnocchi_api_count" { default = 1 }
+variable "metricd_count"    { default = 1 }
 #variable "ceph_count"       { default = 3 }
 #variable "swift_count"      { default = 3 }
 variable "nodenames"        { default = ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"] }
