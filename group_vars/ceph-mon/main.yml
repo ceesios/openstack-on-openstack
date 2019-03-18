@@ -1,0 +1,8 @@
+---
+
+packages:
+  - chrony
+  - ceph
+  - ceph-mds
+
+

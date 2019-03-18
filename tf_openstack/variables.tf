@@ -5,6 +5,7 @@ variable "azs" {
   default = ["AMS-EQ1", "AMS-EQ3", "AMS-EU4"]
 }
 variable "image_name"       { default = "Ubuntu 18.04 (LTS)", type = "string"}
+variable "small_flavor_id"  { default = "1001", type = "string"}
 variable "flavor_id"        { default = "2016", type = "string"}
 variable "security_groups"  { default = ["default"], type = "list"}
 variable "floating_ip_pool" { default = "floating", type = "string"}
@@ -32,7 +33,7 @@ variable "control_count"    { default = 1 }
 variable "compute_count"    { default = 3 }
 variable "gnocchi_api_count" { default = 1 }
 variable "metricd_count"    { default = 1 }
-#variable "ceph_count"       { default = 3 }
+variable "ceph_mon_count"   { default = 3 }
+variable "ceph_s_node_count" { default = 3 }
 #variable "swift_count"      { default = 3 }
 variable "nodenames"        { default = ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"] }
-

@@ -14,3 +14,11 @@ ooo:
     user_domain_name: default
     project_domain_name: default
   region_name: RegionOne
+
+openstack_repo: deb http://ubuntu-cloud.archive.canonical.com/ubuntu bionic-updates/rocky main
+openstack_apt_key: 5EDB1B62EC4926EA
+ceph_repo: deb https://download.ceph.com/debian-mimic/ bionic main 
+ceph_fsid: 99ff2aa1-9748-4e4b-acfe-d4974f12a3c4
+
+packages:
+  - software-properties-common

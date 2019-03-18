@@ -252,7 +252,7 @@ provider "openstack" {
     name              = "${var.clustername}-GN-API${element(var.nodenames, count.index % length(var.nodenames))}"
     availability_zone = "${element(var.azs, count.index % length(var.azs))}"
     image_name        = "${var.image_name}"
-    flavor_id         = "${var.flavor_id}" 
+    flavor_id         = "${var.small_flavor_id}" 
     key_pair          = "${var.key_pair}"
     security_groups   = ["${var.security_groups}"]
     depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
@@ -274,4 +274,141 @@ provider "openstack" {
         "sudo apt dist-upgrade -y &"
       ]
     }
+  }
+
+  # Gnocchi metricd nodes
+  resource "openstack_compute_instance_v2" "gnocchi-metricd" {
+    count             = "${var.metricd_count}"
+    name              = "${var.clustername}-GN-metricd${element(var.nodenames, count.index % length(var.nodenames))}"
+    availability_zone = "${element(var.azs, count.index % length(var.azs))}"
+    image_name        = "${var.image_name}"
+    flavor_id         = "${var.small_flavor_id}" 
+    key_pair          = "${var.key_pair}"
+    security_groups   = ["${var.security_groups}"]
+    depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
+    network {
+      name            = "${openstack_networking_network_v2.mgmt-net.name}"
+    }
+
+    connection {
+      user            = "ubuntu"
+      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
+    }
+
+    provisioner "remote-exec" {
+      inline = [
+        "echo terraform executed > /tmp/foo",
+        "sleep 10",
+        "sudo apt update",
+        "sleep 10",
+        "sudo apt dist-upgrade -y &"
+      ]
+    }
+  }
+
+
+## ceph
+  # ceph-mons
+  resource "openstack_compute_instance_v2" "ceph-mon" {
+    count             = "${var.ceph_mon_count}"
+    name              = "${var.clustername}-mon-${element(var.nodenames, count.index % length(var.nodenames))}"
+    availability_zone = "${element(var.azs, count.index % length(var.azs))}"
+    image_name        = "${var.image_name}"
+    flavor_id         = "${var.small_flavor_id}" 
+    key_pair          = "${var.key_pair}"
+    security_groups   = ["${var.security_groups}"]
+    depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
+    network {
+      name            = "${openstack_networking_network_v2.mgmt-net.name}"
+    }
+
+    connection {
+      user            = "ubuntu"
+      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
+    }
+
+    provisioner "remote-exec" {
+      inline = [
+        "echo terraform executed > /tmp/foo",
+        "sleep 10",
+        "sudo apt update",
+        "sleep 10",
+        "sudo apt dist-upgrade -y &"
+      ]
+    }
+  }
+
+  # ceph-osd volumes
+  resource "openstack_blockstorage_volume_v2" "ceph-osd-volumes-sda" {
+    count             = "${var.ceph_s_node_count}"
+    availability_zone = "${element(var.azs, count.index % length(var.azs))}"
+    name              = "osd1"
+    description       = "first osd volume"
+    size              = 10
+    volume_type       = "ssd"
+  }
+
+  resource "openstack_blockstorage_volume_v2" "ceph-osd-volumes-sdc" {
+    count             = "${var.ceph_s_node_count}"
+    availability_zone = "${element(var.azs, count.index % length(var.azs))}"
+    name              = "osd2"
+    description       = "2nd osd volume"
+    size              = 10
+    volume_type       = "ssd"
+  }
+
+  resource "openstack_blockstorage_volume_v2" "ceph-osd-volumes-sdd" {
+    count             = "${var.ceph_s_node_count}"
+    availability_zone = "${element(var.azs, count.index % length(var.azs))}"
+    name              = "osd3"
+    description       = "3rd osd volume"
+    size              = 10
+    volume_type       = "ssd"
+  }
+
+  # ceph-s1 nodes
+  resource "openstack_compute_instance_v2" "ceph-s1" {
+    count             = "${var.ceph_s_node_count}"
+    name              = "${var.clustername}-s1-${element(var.nodenames, count.index % length(var.nodenames))}"
+    availability_zone = "${element(var.azs, count.index % length(var.azs))}"
+    image_name        = "${var.image_name}"
+    flavor_id         = "${var.small_flavor_id}" 
+    key_pair          = "${var.key_pair}"
+    security_groups   = ["${var.security_groups}"]
+    depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
+    network {
+      name            = "${openstack_networking_network_v2.mgmt-net.name}"
+    }
+
+    connection {
+      user            = "ubuntu"
+      host            = "${openstack_networking_floatingip_v2.floatip_ctrl.address}"
+    }
+
+    provisioner "remote-exec" {
+      inline = [
+        "echo terraform executed > /tmp/foo",
+        "sleep 10",
+        "sudo apt update",
+        "sleep 10",
+        "sudo apt dist-upgrade -y &"
+      ]
+    }
+  }
+
+  #Mount osd volumes
+  resource "openstack_compute_volume_attach_v2" "va_1" {
+    count       = "${var.ceph_s_node_count}"
+    instance_id = "${openstack_compute_instance_v2.ceph-s1.*.id[count.index]}"
+    volume_id   = "${openstack_blockstorage_volume_v2.ceph-osd-volumes-sda.*.id[count.index]}"
+  }
+  resource "openstack_compute_volume_attach_v2" "va_2" {
+    count       = "${var.ceph_s_node_count}"
+    instance_id = "${openstack_compute_instance_v2.ceph-s1.*.id[count.index]}"
+    volume_id   = "${openstack_blockstorage_volume_v2.ceph-osd-volumes-sdc.*.id[count.index]}"
+  }
+  resource "openstack_compute_volume_attach_v2" "va_3" {
+    count       = "${var.ceph_s_node_count}"
+    instance_id = "${openstack_compute_instance_v2.ceph-s1.*.id[count.index]}"
+    volume_id   = "${openstack_blockstorage_volume_v2.ceph-osd-volumes-sdd.*.id[count.index]}"
   }

@@ -8,8 +8,13 @@ connection = mysql+pymysql://glance:{{DATABASE_PASS}}@{{access_ip_v4}}/glance
 backend = sqlalchemy
 
 [glance_store]
-stores = file,http
+stores = file,http,rbd
 default_store = file
+
+rbd_store_pool = images
+rbd_store_ceph_conf = /etc/ceph/ceph.conf
+rbd_store_chunk_size = 8
+
 filesystem_store_datadir = /var/lib/glance/images/
 
 [image_format]

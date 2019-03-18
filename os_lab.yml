@@ -11,7 +11,7 @@
 ---
 
 ## install python via raw module
-- hosts: compute, control, gnocchi-api
+- hosts: type_openstack_compute_instance_v2
   gather_facts: False
 
   tasks:
@@ -31,7 +31,7 @@
     setup:
     tags: always
 
-- hosts: compute, control, gnocchi-api
+- hosts: type_openstack_compute_instance_v2
   tasks:
   - name: "Build hosts file"
     lineinfile: 
@@ -40,46 +40,71 @@
       line="{{ hostvars[item].access_ip_v4 }} {{ hostvars[item].ansible_hostname }}" 
       state=present
     with_items: 
-      - "{{ groups['compute'] }}"
-      - "{{ groups['control'] }}"
-      - "{{ groups['gnocchi-api'] }}"
+      - "{{ groups['type_openstack_compute_instance_v2'] }}"
     tags: 
       - firstrun
       - hostsfile
 
-  - name: add-apt-repository
-    shell: |
-      add-apt-repository cloud-archive:rocky -y; apt-key adv \
-       --keyserver keyserver.ubuntu.com --recv-keys 5EDB1B62EC4926EA
-    tags: firstrun
+  - name: apt repositories and packages
+    block:
+      - name: add apt keys
+        apt_key:
+          id: "{{openstack_apt_key}}"
+          keyserver: keyserver.ubuntu.com
+          state: present
 
-#  - name: add-apt-repository rocky
-#    apt_repository:
-#      repo: cloud-archive:rocky
+      - name: add-apt-repository for OpenStack
+        apt_repository:
+          repo: "{{openstack_repo}}"
+        tags: add-apt-repository
 
-  - name: dist-upgrade
-    apt:
-      upgrade: dist
-      update_cache: yes
-      dpkg_options: 'force-confold,force-confdef'
-    tags: firstrun
-    ##retry so we can use forking
-    register: apt_result
-    retries: 10
-    until: apt_result is success
+      - name: add ceph apt keys
+        apt_key:
+          url: https://download.ceph.com/keys/release.asc
+          state: present
+        tags: 
+          - add-apt-repository
+          - ceph
 
-  - name: ensure common packages are installed
-    apt:
-      pkg:
-        - chrony
-        - software-properties-common
-        - python-openstackclient 
-      state: present
-      update_cache: yes
-    ##retry so we can use forking
-    register: apt_result
-    retries: 10
-    until: apt_result is success
+      - name: add-apt-repository ceph
+        apt_repository:
+          repo: "{{ceph_repo}}"
+          filename: ceph.list
+        tags: 
+          - add-apt-repository
+          - ceph
+
+      - name: dist-upgrade
+        apt:
+          upgrade: dist
+          update_cache: yes
+          dpkg_options: 'force-confold,force-confdef'
+          autoremove: yes
+        tags: firstrun
+        ##retry so we can use forking
+        register: apt_result
+        retries: 10
+        until: apt_result is success
+
+      - name: ensure common packages are installed
+        apt:
+          pkg:
+            - chrony
+            - software-properties-common
+            - python-openstackclient 
+          state: present
+          update_cache: yes
+          autoremove: yes
+        register: apt_result
+        retries: 10
+        until: apt_result is success
+
+      - name: ensure group_vars specific packages are installed
+        apt:  pkg={{packages}} state=present update_cache=yes
+        register: apt_result
+        retries: 10
+        until: apt_result is success
+    tags: packages
 
   - name: configure chrony
     lineinfile:
@@ -96,6 +121,17 @@
   - name: set timezone
     timezone:
       name: Europe/Bratislava
+
+  - name: template rc files on all nodes (might come in handy)
+    template:
+      src=files/{{item}}.j2
+      dest=/root/{{item}}
+      backup=yes
+    with_items:
+      - adminrc
+      - userrc
+      - demorc
+    tags: rc
 
   - name: template rc files on all nodes (might come in handy)
     template:
@@ -125,6 +161,10 @@
       - net.bridge.bridge-nf-call-ip6tables: 1
       - vm.overcommit_memory: 1
       - net.core.somaxconn: 1
+      - net.ipv6.conf.all.disable_ipv6: 1
+      - net.ipv6.conf.default.disable_ipv6: 1
+      - net.ipv6.conf.lo.disable_ipv6: 1
+    register: sysctl_result
     tags: sysctl
     ##fails and retry doesnt work, so ignore errors
     ignore_errors: yes
@@ -139,7 +179,11 @@
       - net.bridge.bridge-nf-call-ip6tables: 1
       - vm.overcommit_memory: 1
       - net.core.somaxconn: 1
+      - net.ipv6.conf.all.disable_ipv6: 1
+      - net.ipv6.conf.default.disable_ipv6: 1
+      - net.ipv6.conf.lo.disable_ipv6: 1
     tags: sysctl
+    when: sysctl_result is not success
     ignore_errors: yes
 
   handlers:
@@ -147,11 +191,286 @@
     service: name=chrony state=restarted
 
 #######################################################################
+## Ceph
+#######################################################################
+- hosts: control
+  tasks:
+  # Wont work untill 2.8
+  # - name: gen ssh key on control
+  #   openssh_keypair:
+  #     path: /root/.ssh/id_rsa
+  #     type: rsa
+  #   tags: ceph
+
+  # Should be replaced with previous step when 2.8 is out
+  - name: gen ssh key on control
+    shell: ssh-keygen -b 2048 -t rsa -f /root/.ssh/id_rsa -q -N ""
+    args:
+      creates: /root/.ssh/id_rsa
+    tags: ceph
+
+  - name: register pubkey
+    slurp:
+      src: /root/.ssh/id_rsa.pub
+    register: pubkey
+    tags: ceph
+
+- hosts: compute, ceph-*
+  tasks:
+  - name: Set authorized key taken from file for ceph-deploy
+    authorized_key:
+      user: root
+      state: present
+      key: "{{ hostvars[item]['pubkey']['content']|b64decode }}"
+    tags: ceph
+    with_items: '{{control_node_ip}}'
+
+  - name: Set authorized key taken from file for ceph-deploy
+    authorized_key:
+      user: ubuntu
+      state: present
+      key: "{{ hostvars[item]['pubkey']['content']|b64decode }}"
+    tags: ceph
+    with_items: '{{control_node_ip}}'
+
+  # - name: ensure certain packages are installed
+  #   apt: pkg={{packages}} state=present update_cache=yes
+  #   tags:
+  #     - packages
+  #     - ceph
+  #   register: apt_result
+  #   retries: 10
+  #   until: apt_result is success
+
+- hosts: type_openstack_compute_instance_v2
+  tasks:
+# http://docs.ceph.com/docs/mimic/install/manual-deployment/
+  - name: create ceph config on all nodes
+    block:
+      - name: 2. Ensure you have a directory for the Ceph configuration file.
+        file:
+          path: /etc/ceph
+          state: directory
+          owner: root
+          group: root
+          mode: 0755
+
+      - name: 3-7. Create a Ceph configuration file.
+        template:
+          src=files/ceph/ceph.conf.j2
+          dest=/etc/ceph/ceph.conf
+          mode=0644
+          owner=root
+          group=root
+    tags: 
+      - ceph
+      - ceph-config
+
+- hosts: ceph-mon.0
+  tasks:
+  - name: create keyring with users on first mon
+    block:
+      - name: 8. Create a keyring for your cluster and secret key.
+        shell: |
+          ceph-authtool \
+          --create-keyring /etc/ceph/tmp_ceph.mon.keyring \
+          --gen-key -n mon. \
+          --cap mon 'allow *'
+        args:
+          creates: /etc/ceph/tmp_ceph.mon.keyring
+        register: tmpcephmonkeyring
+
+      - name: 9. Gen an administrator keyring and client.admin user.
+        shell: |
+          ceph-authtool \
+          --create-keyring /etc/ceph/ceph.client.admin.keyring \
+          --gen-key -n client.admin \
+          --set-uid=0 \
+          --cap mon 'allow *' \
+          --cap osd 'allow *' \
+          --cap mds 'allow *' \
+          --cap mgr 'allow *'
+        args:
+          creates: /etc/ceph/ceph.client.admin.keyring
+        register: cephadminkeyring
+
+      - name: 10. Gen a bootstrap-osd keyring and client.bootstrap-osd user.
+        shell: |
+          ceph-authtool \
+          --create-keyring /var/lib/ceph/bootstrap-osd/ceph.keyring \
+          --gen-key -n client.bootstrap-osd \
+          --cap mon 'profile bootstrap-osd'
+        args:
+          creates: /var/lib/ceph/bootstrap-osd/ceph.keyring
+        register: cephbootstrapkeyring
+
+      - name: 11. Add the generated keys to tmp_ceph.mon.keyring.
+        shell: |
+          ceph-authtool /etc/ceph/tmp_ceph.mon.keyring \
+          --import-keyring /etc/ceph/ceph.client.admin.keyring
+        when: cephadminkeyring.changed or tmpcephmonkeyring.changed
+        
+      - name: 11. Add the generated keys to tmp_ceph.mon.keyring.
+        shell: |
+          ceph-authtool /etc/ceph/tmp_ceph.mon.keyring \
+          --import-keyring /var/lib/ceph/bootstrap-osd/ceph.keyring
+        when: cephbootstrapkeyring.changed or tmpcephmonkeyring.changed
+
+      - name: 12. Gen a monitor map. Save it as /etc/ceph/tmp_monmap
+        shell: |
+          monmaptool --create \
+          --add {{ ansible_hostname }} {{ access_ip_v4 }} \
+          --fsid {{ ceph_fsid }} /etc/ceph/tmp_monmap
+        args:
+          creates: /etc/ceph/tmp_monmap
+        register: monmap
+
+      - name: 12. Add other hosts to monmap
+        shell: |
+          monmaptool \
+          --add {{ hostvars[item].ansible_hostname }} {{ hostvars[item].access_ip_v4 }} \
+          --fsid {{ ceph_fsid }} /etc/ceph/tmp_monmap
+        loop: "{{ query('inventory_hostnames', 'ceph-mon') }}"
+        ignore_errors: true
+
+      - name: 13. Create a default data directory on the monitor host(s).
+        file:
+          path: /var/lib/ceph/mon/ceph-{{ ansible_hostname }}
+          state: directory
+          owner: ceph
+          group: ceph
+          mode: 0755
+
+      - name: 14. Populate the mons with the monmap and keyring.
+        shell: |
+          sudo -u ceph ceph-mon --cluster ceph \
+          --mkfs -i {{ ansible_hostname }} \
+          --monmap /etc/ceph/tmp_monmap \
+          --keyring /etc/ceph/tmp_ceph.mon.keyring
+        args:
+          creates: /var/lib/ceph/mon/{{ ansible_hostname }}/store.db
+        when: cephbootstrapkeyring.changed or tmpcephmonkeyring.changed or cephadminkeyring.changed
+
+      - name: 16. Touch the done file.
+        copy:
+          content: ""
+          dest: /var/lib/ceph/mon/ceph-{{ ansible_hostname }}/done
+          force: no
+          owner: ceph
+          group: ceph
+          mode: 0644
+
+      - name: start ceph-mon
+        service: 
+          name=ceph-mon@{{ ansible_hostname }}
+          state=started
+
+      - name: copy keyring tmp files locally
+        fetch: 
+          src: /etc/ceph/{{ item }}
+          dest: .tmp/
+        with_items:
+          - tmp_ceph.mon.keyring
+          - tmp_monmap
+    tags:
+      - ceph
+      - keyring
+
+- hosts: ceph-mon:!ceph-mon.0
+  tasks:
+  - name: finish mon install on other nodes
+    block:
+      - name: copy keyring tmp files
+        copy: 
+          src: .tmp/{{ groups['ceph-mon'][0] }}/etc/ceph/{{ item }}
+          dest: /etc/ceph/
+        with_items:
+          - tmp_ceph.mon.keyring
+          - tmp_monmap
+        register: keyringcopy
+
+      - name: 13. Create a default data directory on the monitor host(s).
+        file:
+          path: /var/lib/ceph/mon/ceph-{{ ansible_hostname }}
+          state: directory
+          owner: ceph
+          group: ceph
+          mode: 0755
+
+      - name: 14. Populate the mons with the monmap and keyring.
+        become: yes
+        become_user: ceph
+        shell: |
+          ceph-mon --cluster ceph \
+          --mkfs -i {{ ansible_hostname }} \
+          --monmap /etc/ceph/tmp_monmap \
+          --keyring /etc/ceph/tmp_ceph.mon.keyring
+        args:
+          creates: /var/lib/ceph/mon/{{ ansible_hostname }}/store.db
+
+      - name: 16. Touch the done file.
+        copy:
+          content: ""
+          dest: /var/lib/ceph/mon/ceph-{{ ansible_hostname }}/done
+          force: no
+          owner: ceph
+          group: ceph
+          mode: 0644
+
+      - name: start ceph-mon
+        service: 
+          name=ceph-mon@{{ ansible_hostname }}
+          state=started
+    tags:
+      - ceph
+      - keyring
+
+  - name: create manager
+    block:
+      - name: Create an authentication key for your mgr daemon
+        shell: |
+          ceph auth get-or-create mgr.{{ ansible_hostname }} mon \
+          'allow profile mgr' osd 'allow *' mds 'allow *' \
+           -o /var/lib/ceph/mgr/ceph-{{ ansible_hostname }}
+        args:
+          creates: /var/lib/ceph/mgr/ceph-{{ ansible_hostname }}
+        register: mgrauthkey
+
+      - name: start ceph-mgr
+        shell: |
+          ceph-mgr -i {{ ansible_hostname }}
+        when: mgrauthkey.changed
+    tags:
+      - ceph
+      - ceph-mgr
+
+
+## create the ceph-deploy script
+- hosts: control
+  tasks:
+  - name: template ceph-deploy.sh
+    template:
+      src=files/ceph/ceph-deploy.sh.j2
+      dest=/root/ceph-deploy.sh
+      mode=0740
+      owner=root
+      group=root
+    tags: ceph
+    register: cephdeploysh
+
+#http://docs.ceph.com/docs/master/rados/operations/add-or-rm-osds/?highlight=osd
+  - name: zap OSDs and create pools
+    shell: /root/ceph-deploy.sh | tee /root/ceph-deploy.log
+    tags: ceph
+    when: cephdeploysh.changed
+
+
+#######################################################################
 ## Control nodes
 #######################################################################
 - hosts: control
   tasks:
-    ## Set facts by stripping "metadata." and joining with _ to replace dots
+    ## Set facts by stripping "metadata." and joining with _
   - name: Set fact from terraform metadata
     set_fact:
       "{{item.key.split('.')[1:10] | join('_') }}": "{{ item.value }}"
@@ -162,9 +481,12 @@
     tags: always
 
 ## pakages
-  - name: ensure certain packages are installed on control
-    apt:  pkg={{packages}} state=present update_cache=yes
-    tags: packages
+  # - name: ensure certain packages are installed on control
+  #   apt:  pkg={{packages}} state=present update_cache=yes
+  #   tags: packages
+  #   register: apt_result
+  #   retries: 10
+  #   until: apt_result is success
 
 ## Configure haproxy
   - name: template haproxy.cfg
@@ -204,7 +526,8 @@
     with_items: "{{mysql_databases}}"
     tags: database
 
-# grant every user all privileges since ansible cant provide multiple grants thats needed for nova_cell0 etc.
+# grant every user all privileges since ansible cant provide multiple 
+# grants thats needed for nova_cell0 etc.
   - name: create users
     mysql_user:
       config_file=/etc/mysql/debian.cnf
@@ -270,15 +593,15 @@
     notify: restart-redis
     tags: redis
 
-  - name: chmod /var/lib/redis/dump.rdb
-    file:
-      path: /var/lib/redis/dump.rdb
-      state: file
-      owner: redis
-      group: redis
-      mode: 0644
-    notify: restart-redis
-    tags: redis
+  # - name: chmod /var/lib/redis/dump.rdb
+  #   file:
+  #     path: /var/lib/redis/dump.rdb
+  #     state: file
+  #     owner: redis
+  #     group: redis
+  #     mode: 0644
+  #   notify: restart-redis
+  #   tags: redis
 
 ## Memcached
   - name: template memcached.conf
@@ -362,6 +685,7 @@
        --bootstrap-region-id RegionOne
     become: yes
     become_user: root
+    register: command_result
     failed_when: "'FAILED' in command_result.stderr"
     when: keystonetablecount.stdout|int < 10
     with_items: 
@@ -465,7 +789,9 @@
         notify: 
           - restart-glance-api
           - restart-glance-registry
-    tags: glance
+    tags:
+      - glance
+      - firstrun
 
 
 #######################################################################
@@ -529,6 +855,32 @@
           # - restart-nova-spiceproxy
     tags: nova
 
+#######################################################################
+## Cinder controller
+  - name: configure cinder
+    block:
+      - name: configure cinder
+        template:
+          src=files/{{item}}.j2
+          dest=/etc/{{item}}
+          backup=yes
+        with_items:
+          - cinder/cinder.conf
+        notify: 
+          - restart-cinder-api
+          - restart-cinder-scheduler
+
+      # - name: count cinder api tables
+      #   shell: |
+      #     mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+      #     WHERE table_schema = 'cinder';" -B  -N
+      #   register: cindertablecount
+
+      # - name: Populate the cinder API database
+      #   shell: su -s /bin/sh -c "cinder-manage api_db sync" cinder
+      #   when: cindertablecount.stdout|int < 10
+
+      # - name: 
 
 #######################################################################
 ## Neutron controller
@@ -636,9 +988,9 @@
 - hosts: gnocchi-api
   tasks:
 ## pakages
-  - name: install gnocchi packages
-    apt:  pkg={{packages}} state=present update_cache=yes
-    tags: gnocchi
+  # - name: install gnocchi packages
+  #   apt:  pkg={{packages}} state=present update_cache=yes
+  #   tags: gnocchi
 
   - name: chown /var/lib/gnocchi directory
     file:
@@ -707,9 +1059,9 @@
 - hosts: compute
   tasks:
 ## pakages
-  - name: install copute-node packages
-    apt:  pkg={{packages}} state=present update_cache=yes
-    tags: compute-node
+  # - name: install copute-node packages
+  #   apt:  pkg={{packages}} state=present update_cache=yes
+  #   tags: compute-node
 
 ## Configure ceilometer
   - name: configure ceilometer
@@ -776,7 +1128,6 @@
       state=started
     with_items:
       - apache2 
-      - chrony 
       - etcd 
       - glance-api 
       - glance-registry 
@@ -795,7 +1146,7 @@
 
   - name: add compute nodes to cell database
     shell: |
-      . ~/.adminrc && su -s /bin/sh -c "nova-manage cell_v2 \
+      . ~/adminrc && su -s /bin/sh -c "nova-manage cell_v2 \
       discover_hosts --verbose" nova
     tags:
       - compute
@@ -813,6 +1164,13 @@
   #     disk: 10
   #     endpoint_type: public
   #   tags: finalize
+
+  - name: add flavor with salt and pepper
+    shell: |
+      . ~/adminrc && openstack flavor create --ram 512 --disk 10 \
+       --vcpus 1 --public tiny1 || true
+    tags:
+      - flavor
 
   - name: Create a net-public
     os_network:
@@ -841,6 +1199,12 @@
       # dns_nameservers:
     tags: finalize
 
+  - name: download cirros image
+    get_url:
+      url: http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img
+      dest: /tmp/cirros-0.4.0-x86_64-disk.img
+    tags: finalize
+
   - name: upload cirros image
     os_image:
       cloud: "{{ooo}}"
@@ -848,8 +1212,7 @@
       container_format: bare
       disk_format: qcow2
       state: present
-      filename: http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img
-      # filename: ~/cirros-0.4.0-x86_64-disk.img
+      filename: /tmp/cirros-0.4.0-x86_64-disk.img
       kernel: cirros-vmlinuz
       ramdisk: cirros-initrd
       properties:
@@ -857,30 +1220,17 @@
         distro: cirros
     tags: finalize
 
-
-  # - name: download cirros image
-  #   get_url:
-  #     url: http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img
-  #     dest: ~/cirros-0.4.0-x86_64-disk.img
-  #   tags: finalize
-
-  # - name: upload cirros image
-  #   shell: |
-  #     . ~/.adminrc && openstack image create "cirros" \
-  #       --file ~/cirros-0.4.0-x86_64-disk.img --disk-format qcow2 \
-  #       --container-format bare --public
-  #   tags: finalize
-
   - name: get openstack services
     shell: |
-      . ~/.adminrc 
+      . ~/adminrc 
       openstack image list
       openstack domain list
       openstack project list
       openstack user list
       openstack compute service list
       openstack image list
-      openstack endpoint list --sort-column "Service Name" --sort-column "Interface"
+      openstack endpoint list --sort-column "Service Name" \
+       --sort-column "Interface"
     register: show_result
     tags: 
       - show_result

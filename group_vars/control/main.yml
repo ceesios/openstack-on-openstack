@@ -4,6 +4,10 @@ packages:
   - apache2
   - ceilometer-agent-notification
   - ceilometer-agent-central
+  - cinder-api
+  - cinder-volume
+  - cinder-scheduler
+  - cinder-backup
   - etcd
   - fail2ban
   - haproxy
@@ -23,21 +27,27 @@ packages:
   - nova-placement-api  
   - nova-scheduler
   - openstack-dashboard
-  - php-myadmin
+  - phpmyadmin
   - python-memcache
   - python-pymysql
   - python-gnocchiclient
   - rabbitmq-server
   - redis
+  - ceph
+  - ceph-deploy
+
+  - libaio1
+  - libsnappy1v5
+  - libcurl3
+  - curl
+  - libgoogle-perftools4
+  - google-perftools
+  - libleveldb1v5
+  - python-rbd
+
+
   # - nova-spiceproxy
   # - spice-html5
-
-nova_packages:
-  - nova-api
-  - nova-conductor
-  - nova-novncproxy
-  - nova-scheduler
-  - nova-placement-api  
 
 
 mysql_databases:
@@ -49,6 +59,7 @@ mysql_databases:
   - placement
   - neutron
   - gnocchi
+  - cinder
 
 
 keystone_domains:
@@ -68,28 +79,24 @@ keystone_services:
   glance:
     type: image
     description: "OpenStack Image"
-    # interface: public
-    # region: "RegionOne"
   nova:
     type: compute
     description: "OpenStack Compute"
-    # interface: public
-    # region: "RegionOne"
   placement:
     type: placement
     description: "Placement API"
-    # interface: public
-    # region: "RegionOne"
   neutron:
     type: network
     description: "OpenStack Networking" 
-    # interface: public
-    # region: "RegionOne"
   gnocchi:
     type: metric
     description: "Metric Service" 
-    # interface: public
-    # region: "RegionOne"
+  cinderv2:
+    type: volumev2
+    description: "OpenStack Block Storage" 
+  cinderv3:
+    type: volumev3
+    description: "OpenStack Block Storage" 
 
 
 keystone_endpoints:
@@ -158,6 +165,31 @@ keystone_endpoints:
     interface: admin 
     url: http://os-lab-control:8041
 
+  - region: RegionOne
+    service: cinderv2
+    interface: public 
+    url: http://{{control_node_ip_remote}}:8776//v2/$(project_id)s
+  - region: RegionOne
+    service: cinderv2
+    interface: internal 
+    url: http://os-lab-control:8776/v2/$(project_id)s
+  - region: RegionOne
+    service: cinderv2
+    interface: admin 
+    url: http://os-lab-control:8776/v2/$(project_id)s
+
+  - region: RegionOne
+    service: cinderv3
+    interface: public 
+    url: http://{{control_node_ip_remote}}:8776/v3/$(project_id)s
+  - region: RegionOne
+    service: cinderv3
+    interface: internal 
+    url: http://os-lab-control:8776/v3/$(project_id)s
+  - region: RegionOne
+    service: cinderv3
+    interface: admin 
+    url: http://os-lab-control:8776/v3/$(project_id)s
 
 keystone_users:
   demo:
