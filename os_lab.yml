@@ -22,6 +22,13 @@
     tags: firstrun
 
 #######################################################################
+#  .o88b.  .d88b.  .88b  d88. .88b  d88.  .d88b.  d8b   db 
+# d8P  Y8 .8P  Y8. 88'YbdP`88 88'YbdP`88 .8P  Y8. 888o  88 
+# 8P      88    88 88  88  88 88  88  88 88    88 88V8o 88 
+# 8b      88    88 88  88  88 88  88  88 88    88 88 V8o88 
+# Y8b  d8 `8b  d8' 88  88  88 88  88  88 `8b  d8' 88  V888 
+#  `Y88P'  `Y88P'  YP  YP  YP YP  YP  YP  `Y88P'  VP   V8P 
+#
 ## common stuff
 #######################################################################
 - hosts: all
@@ -191,7 +198,14 @@
     service: name=chrony state=restarted
 
 #######################################################################
-## Ceph
+#  .o88b. d88888b d8888b. db   db 
+# d8P  Y8 88'     88  `8D 88   88 
+# 8P      88ooooo 88oodD' 88ooo88 
+# 8b      88~~~~~ 88~~~   88~~~88 
+# Y8b  d8 88.     88      88   88 
+#  `Y88P' Y88888P 88      YP   YP 
+#                                
+## Ceph - ssh keys for ceph-deploy (not really used)
 #######################################################################
 - hosts: control
   tasks:
@@ -233,15 +247,9 @@
     tags: ceph
     with_items: '{{control_node_ip}}'
 
-  # - name: ensure certain packages are installed
-  #   apt: pkg={{packages}} state=present update_cache=yes
-  #   tags:
-  #     - packages
-  #     - ceph
-  #   register: apt_result
-  #   retries: 10
-  #   until: apt_result is success
-
+#######################################################################
+## Ceph
+#######################################################################
 - hosts: type_openstack_compute_instance_v2
   tasks:
 # http://docs.ceph.com/docs/mimic/install/manual-deployment/
@@ -466,8 +474,24 @@
 
 
 #######################################################################
-## Control nodes
+#  .o88b.  .d88b.  d8b   db d888888b d8888b.  .d88b.  db      
+# d8P  Y8 .8P  Y8. 888o  88 `~~88~~' 88  `8D .8P  Y8. 88      
+# 8P      88    88 88V8o 88    88    88oobY' 88    88 88      
+# 8b      88    88 88 V8o88    88    88`8b   88    88 88      
+# Y8b  d8 `8b  d8' 88  V888    88    88 `88. `8b  d8' 88booo. 
+#  `Y88P'  `Y88P'  VP   V8P    YP    88   YD  `Y88P'  Y88888P 
+#                                                       
+#                                                           
+# d8b   db  .d88b.  d8888b. d88888b .d8888. 
+# 888o  88 .8P  Y8. 88  `8D 88'     88'  YP 
+# 88V8o 88 88    88 88   88 88ooooo `8bo.   
+# 88 V8o88 88    88 88   88 88~~~~~   `Y8b. 
+# 88  V888 `8b  d8' 88  .8D 88.     db   8D 
+# VP   V8P  `Y88P'  Y8888D' Y88888P `8888Y' 
+#
+## Control node with keystone, glance, nova, neutron, gnocchi, ceilometer
 #######################################################################
+
 - hosts: control
   tasks:
     ## Set facts by stripping "metadata." and joining with _
@@ -479,14 +503,6 @@
       - '"metadata" in item.key'
       - '"%" not in item.key'
     tags: always
-
-## pakages
-  # - name: ensure certain packages are installed on control
-  #   apt:  pkg={{packages}} state=present update_cache=yes
-  #   tags: packages
-  #   register: apt_result
-  #   retries: 10
-  #   until: apt_result is success
 
 ## Configure haproxy
   - name: template haproxy.cfg
@@ -627,7 +643,15 @@
     notify: restart-etcd
 
 #######################################################################
-## Keystone
+# db   dD d88888b db    db .d8888. d888888b  .d88b.  d8b   db d88888b 
+# 88 ,8P' 88'     `8b  d8' 88'  YP `~~88~~' .8P  Y8. 888o  88 88'     
+# 88,8P   88ooooo  `8bd8'  `8bo.      88    88    88 88V8o 88 88ooooo 
+# 88`8b   88~~~~~    88      `Y8b.    88    88    88 88 V8o88 88~~~~~ 
+# 88 `88. 88.        88    db   8D    88    `8b  d8' 88  V888 88.     
+# YP   YD Y88888P    YP    `8888Y'    YP     `Y88P'  VP   V8P Y88888P 
+#
+## Keystone controller
+
   - name: install keystone
     apt:  pkg=keystone state=present update_cache=yes
     register: keystone
@@ -762,7 +786,15 @@
 
 
 #######################################################################
+#  d888b  db       .d8b.  d8b   db  .o88b. d88888b 
+# 88' Y8b 88      d8' `8b 888o  88 d8P  Y8 88'     
+# 88      88      88ooo88 88V8o 88 8P      88ooooo 
+# 88  ooo 88      88~~~88 88 V8o88 8b      88~~~~~ 
+# 88. ~8~ 88booo. 88   88 88  V888 Y8b  d8 88.     
+#  Y888P  Y88888P YP   YP VP   V8P  `Y88P' Y88888P                                                
+#
 ## Glance
+
   - name: install glance
     block:
       - name: configure glance
@@ -795,7 +827,15 @@
 
 
 #######################################################################
+# d8b   db  .d88b.  db    db  .d8b.  
+# 888o  88 .8P  Y8. 88    88 d8' `8b 
+# 88V8o 88 88    88 Y8    8P 88ooo88 
+# 88 V8o88 88    88 `8b  d8' 88~~~88 
+# 88  V888 `8b  d8'  `8bd8'  88   88 
+# VP   V8P  `Y88P'     YP    YP   YP 
+#
 ## Nova controller
+
   - name: configure nova
     block:
       - name: configure nova
@@ -856,7 +896,15 @@
     tags: nova
 
 #######################################################################
+#  .o88b. d888888b d8b   db d8888b. d88888b d8888b. 
+# d8P  Y8   `88'   888o  88 88  `8D 88'     88  `8D 
+# 8P         88    88V8o 88 88   88 88ooooo 88oobY' 
+# 8b         88    88 V8o88 88   88 88~~~~~ 88`8b   
+# Y8b  d8   .88.   88  V888 88  .8D 88.     88 `88. 
+#  `Y88P' Y888888P VP   V8P Y8888D' Y88888P 88   YD 
+#
 ## Cinder controller
+
   - name: configure cinder
     block:
       - name: configure cinder
@@ -883,7 +931,15 @@
       # - name: 
 
 #######################################################################
+# d8b   db d88888b db    db d888888b d8888b.  .d88b.  d8b   db 
+# 888o  88 88'     88    88 `~~88~~' 88  `8D .8P  Y8. 888o  88 
+# 88V8o 88 88ooooo 88    88    88    88oobY' 88    88 88V8o 88 
+# 88 V8o88 88~~~~~ 88    88    88    88`8b   88    88 88 V8o88 
+# 88  V888 88.     88b  d88    88    88 `88. `8b  d8' 88  V888 
+# VP   V8P Y88888P ~Y8888P'    YP    88   YD  `Y88P'  VP   V8P 
+#
 ## Neutron controller
+
   - name: configure neutron controller
     block:
     - name: configure neutron
@@ -931,7 +987,15 @@
 
 
 #######################################################################
+# db   db  .d88b.  d8888b. d888888b d88888D  .d88b.  d8b   db 
+# 88   88 .8P  Y8. 88  `8D   `88'   YP  d8' .8P  Y8. 888o  88 
+# 88ooo88 88    88 88oobY'    88       d8'  88    88 88V8o 88 
+# 88~~~88 88    88 88`8b      88      d8'   88    88 88 V8o88 
+# 88   88 `8b  d8' 88 `88.   .88.    d8' db `8b  d8' 88  V888 
+# YP   YP  `Y88P'  88   YD Y888888P d88888P  `Y88P'  VP   V8P 
+#
 ## Openstack-dashboard
+
   - name: configure Openstack-dashboard
     template:
       src=files/openstack-dashboard/local_settings.py.j2
@@ -984,7 +1048,16 @@
     service: name="neutron-l3-agent" state=restarted
 
 #######################################################################
+#  d888b  d8b   db  .d88b.   .o88b.  .o88b. db   db d888888b 
+# 88' Y8b 888o  88 .8P  Y8. d8P  Y8 d8P  Y8 88   88   `88'   
+# 88      88V8o 88 88    88 8P      8P      88ooo88    88    
+# 88  ooo 88 V8o88 88    88 8b      8b      88~~~88    88    
+# 88. ~8~ 88  V888 `8b  d8' Y8b  d8 Y8b  d8 88   88   .88.   
+#  Y888P  VP   V8P  `Y88P'   `Y88P'  `Y88P' YP   YP Y888888P 
+#
 ## Gnocchi
+
+
 - hosts: gnocchi-api
   tasks:
 ## pakages
@@ -1027,7 +1100,16 @@
 
 
 #######################################################################
+#  .o88b. d88888b d888888b db       .d88b.  .88b  d88. d88888b d888888b d88888b d8888b.
+# d8P  Y8 88'       `88'   88      .8P  Y8. 88'YbdP`88 88'     `~~88~~' 88'     88  `8D 
+# 8P      88ooooo    88    88      88    88 88  88  88 88ooooo    88    88ooooo 88oobY' 
+# 8b      88~~~~~    88    88      88    88 88  88  88 88~~~~~    88    88~~~~~ 88`8b   
+# Y8b  d8 88.       .88.   88booo. `8b  d8' 88  88  88 88.        88    88.     88 `88. 
+#  `Y88P' Y88888P Y888888P Y88888P  `Y88P'  YP  YP  YP Y88888P    YP    Y88888P 88   YD 
+#
 ## Ceilometer
+
+
 - hosts: control
   tasks:
   - name: configure ceilometer
@@ -1053,6 +1135,21 @@
     service: name="ceilometer-agent-notification" state=restarted
 
 #######################################################################
+#  .o88b.  .d88b.  .88b  d88. d8888b. db    db d888888b d88888b 
+# d8P  Y8 .8P  Y8. 88'YbdP`88 88  `8D 88    88 `~~88~~' 88'     
+# 8P      88    88 88  88  88 88oodD' 88    88    88    88ooooo 
+# 8b      88    88 88  88  88 88~~~   88    88    88    88~~~~~ 
+# Y8b  d8 `8b  d8' 88  88  88 88      88b  d88    88    88.     
+#  `Y88P'  `Y88P'  YP  YP  YP 88      ~Y8888P'    YP    Y88888P 
+#                                                              
+#                                                              
+# d8b   db  .d88b.  d8888b. d88888b .d8888. 
+# 888o  88 .8P  Y8. 88  `8D 88'     88'  YP 
+# 88V8o 88 88    88 88   88 88ooooo `8bo.   
+# 88 V8o88 88    88 88   88 88~~~~~   `Y8b. 
+# 88  V888 `8b  d8' 88  .8D 88.     db   8D 
+# VP   V8P  `Y88P'  Y8888D' Y88888P `8888Y' 
+#                                          
 ## Compute nodes
 #######################################################################
 
@@ -1116,6 +1213,12 @@
 
 
 #######################################################################
+#      d88888b d888888b d8b   db d888888b .d8888. db   db 
+#      88'       `88'   888o  88   `88'   88'  YP 88   88 
+#      88ooo      88    88V8o 88    88    `8bo.   88ooo88 
+#      88~~~      88    88 V8o88    88      `Y8b. 88~~~88 
+#      88        .88.   88  V888   .88.   db   8D 88   88 
+#      YP      Y888888P VP   V8P Y888888P `8888Y' YP   YP 
 ## Finish up control nodes (
 ## Use hosts: control (internal ip) because thats where the metadata is
 #######################################################################
