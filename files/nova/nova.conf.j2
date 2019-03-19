@@ -29,6 +29,8 @@ connection = mysql+pymysql://nova_api:{{DATABASE_PASS}}@{{control_node_name}}/no
 enable = False
 
 [cinder]
+os_region_name = RegionOne
+
 [compute]
 [conductor]
 [console]
@@ -63,6 +65,9 @@ username = nova
 password = {{NOVA_PASS}}
 
 [libvirt]
+rbd_user = cinder
+rbd_secret_uuid = {{ceph_fsid}}
+
 [matchmaker_redis]
 [metrics]
 [mks]

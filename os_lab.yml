@@ -489,7 +489,17 @@
 # 88  V888 `8b  d8' 88  .8D 88.     db   8D 
 # VP   V8P  `Y88P'  Y8888D' Y88888P `8888Y' 
 #
-## Control node with keystone, glance, nova, neutron, gnocchi, ceilometer
+## Control node with Core components:
+# Nova, Glance, Horizon, Keystone, Neutron, Cinder, Ceilometer
+# Gnocchi
+#
+## Core components TODO:
+# Swift, Heat, Trove, Sahara, Ironic, Zaqar, Manila, Designate, 
+# Barbican, Searchlight, Magnum, aodh, cloudkitty, congress, freezer, 
+# mistral, monasca-api, monasca-log-api, murano, panko, senlin, solum, 
+# tacker, vitrage, Watcher, blazar, ceilometer-powervm, karbor, 
+# octavia, storlets, tricircle, zun, Cyborg, ec2-api, Masakari, Qinling
+
 #######################################################################
 
 - hosts: control
@@ -915,18 +925,22 @@
         with_items:
           - cinder/cinder.conf
         notify: 
-          - restart-cinder-api
           - restart-cinder-scheduler
+          - restart-apache2
+          - restart-cinder-volume
+          - restart-cinder-backup
 
-      # - name: count cinder api tables
-      #   shell: |
-      #     mysql -e "SELECT COUNT(*) FROM information_schema.tables \
-      #     WHERE table_schema = 'cinder';" -B  -N
-      #   register: cindertablecount
+      - name: count cinder tables
+        shell: |
+          mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+          WHERE table_schema = 'cinder';" -B  -N
+        register: cindertablecount
 
-      # - name: Populate the cinder API database
-      #   shell: su -s /bin/sh -c "cinder-manage api_db sync" cinder
-      #   when: cindertablecount.stdout|int < 10
+      - name: Populate the cinder database
+        shell: su -s /bin/sh -c "cinder-manage db sync" cinder
+        when: cindertablecount.stdout|int < 10
+    tags: cinder
+
 
       # - name: 
 
@@ -1020,6 +1034,13 @@
   - name: restart-apache2
     service: name=apache2 state=restarted
 
+  - name: restart-cinder-backup
+    service: name="cinder-backup" state=restarted
+  - name: restart-cinder-scheduler
+    service: name="cinder-scheduler" state=restarted
+  - name: restart-cinder-volume
+    service: name="cinder-volume" state=restarted
+
   - name: restart-glance-registry
     service: name=glance-registry state=restarted
   - name: restart-glance-api
@@ -1033,8 +1054,6 @@
     service: name="nova-scheduler" state=restarted
   - name: restart-nova-novncproxy
     service: name="nova-novncproxy" state=restarted
-  # - name: restart-nova-spiceproxy
-    # service: name="nova-spiceproxy" state=restarted
 
   - name: restart-neutron-server
     service: name="neutron-server" state=restarted
@@ -1056,7 +1075,6 @@
 #  Y888P  VP   V8P  `Y88P'   `Y88P'  `Y88P' YP   YP Y888888P 
 #
 ## Gnocchi
-
 
 - hosts: gnocchi-api
   tasks:
@@ -1108,7 +1126,6 @@
 #  `Y88P' Y88888P Y888888P Y88888P  `Y88P'  YP  YP  YP Y88888P    YP    Y88888P 88   YD 
 #
 ## Ceilometer
-
 
 - hosts: control
   tasks:
