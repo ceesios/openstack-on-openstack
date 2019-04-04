@@ -1,0 +1,6 @@
+---
+
+packages:
+  - gnocchi-common
+  - gnocchi-metricd
+  - python-gnocchiclient

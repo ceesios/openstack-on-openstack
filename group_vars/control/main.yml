@@ -2,16 +2,20 @@
 
 packages:
   - apache2
-  - ceilometer-agent-notification
   - ceilometer-agent-central
+  - ceilometer-agent-notification
+  - ceilometer-polling
+  - ceph
+  - ceph-deploy
   - cinder-api
-  - cinder-volume
-  - cinder-scheduler
   - cinder-backup
+  - cinder-scheduler
+  - cinder-volume
+  - curl
   - etcd
   - fail2ban
-  - haproxy
   - glance
+  - haproxy
   - libapache2-mod-wsgi
   - mariadb-server
   - memcached
@@ -28,22 +32,11 @@ packages:
   - nova-scheduler
   - openstack-dashboard
   - phpmyadmin
+  - python-gnocchiclient
   - python-memcache
   - python-pymysql
-  - python-gnocchiclient
   - rabbitmq-server
   - redis
-  - ceph
-  - ceph-deploy
-
-  - libaio1
-  - libsnappy1v5
-  - libcurl3
-  - curl
-  - libgoogle-perftools4
-  - google-perftools
-  - libleveldb1v5
-  - python-rbd
 
 
   # - nova-spiceproxy

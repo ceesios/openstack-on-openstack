@@ -86,9 +86,13 @@ ceph osd pool create volumes 50
 ceph osd pool create images 50
 ceph osd pool create backups 50
 ceph osd pool create vms 50
+ceph osd pool create gnocchi 8 8
 ceph -s
 
 rbd pool init volumes
 rbd pool init images
 rbd pool init backups
 rbd pool init vms
+rbd pool init gnocchi
+
+ceph auth get-or-create client.gnocchi mon "allow r" osd "allow rwx pool=gnocchi"

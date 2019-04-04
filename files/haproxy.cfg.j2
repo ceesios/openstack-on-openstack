@@ -20,16 +20,33 @@ defaults
     timeout client 50000ms
     timeout server 50000ms
 
-frontend gnocchi-in
+frontend gnocchi-in:8041
     mode http
     bind *:8041
     default_backend gnocchi
 
 backend gnocchi
-    mode http
+    balance         roundrobin
+    mode            http
+    option          redispatch
 {% for host in groups['gnocchi-api'] %}
-    server {{ host }} {{ hostvars[host]['ansible_eth0']['ipv4']['address'] }}:8041
+    server {{ host }} {{ hostvars[host]['ansible_eth0']['ipv4']['address'] }}:8041 check
 {% endfor %}
+
+
+frontend ceph-dashboard-in:8081
+    mode http
+    bind *:8081
+    default_backend ceph-dashboard
+
+backend ceph-dashboard
+    balance         roundrobin
+    mode            http
+    option          redispatch
+{% for host in groups['ceph-mon'] %}
+    server {{ host }} {{ hostvars[host]['ansible_eth0']['ipv4']['address'] }}:8080 check
+{% endfor %}
+
 
 frontend Statistics
     mode http

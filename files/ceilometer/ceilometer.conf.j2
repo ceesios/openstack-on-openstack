@@ -1,25 +1,88 @@
 [DEFAULT]
+debug=False
+verbose=True
+auth_strategy = keystone
+rpc_thread_pool_size = 5
+# notification_topics=notifications =>  deprecated. Use option "topics" from group "oslo_messaging_notifications".
+# rpc_backend = rabbit  ## deprecated Replaced by [DEFAULT]/transport_url
+pollster_list = image,image.size
+# batch_polled_samples = false #deprecated for removal
+
 transport_url = rabbit://openstack:{{RABBIT_PASS}}@{{control_node_name}}
+
+[alarm]
+evaluation_service=ceilometer.alarm.service.SingletonAlarmService
+partition_rpc_topic=alarm_partition_coordination
+evaluation_interval=60
+record_history=True
+
+[api]
+port=8777
+host={{control_node_name}}
+
+[coordination]
+
 
 [compute]
 [coordination]
+
+[database]
+metering_time_to_live = 86400
+event_time_to_live = 86400
+alarm_history_time_to_live = 86400
+
+#metering_connection = stacklight://ceilometer:asd1243@1.2.3.4:8086/ceilometer
+#resource_connection = es://1.2.3.4:9200
+#event_connection = es://1.2.3.4:9200
+connection = mysql+pymysql://ceilometer:{{DATABASE_PASS}}@{{control_node_name}}/ceilometer
+
+
 [event]
 [hardware]
 [ipmi]
+
+[keystone_authtoken]
+auth_host={{control_node_name}}
+auth_port=35357
+auth_protocol=http
+auth_uri=http://{{control_node_name}}:5000/
+identity_uri=http://{{control_node_name}}:35357
+admin_user=ceilometer
+admin_password={{CEILOMETER_PASS}}
+admin_tenant_name=service
+
 [matchmaker_redis]
 [meter]
+
 [notification]
+#ack_on_event_error=True
+#store_events=True
+#disable_non_metric_meters = False
+
 [oslo_concurrency]
 [oslo_messaging_amqp]
 [oslo_messaging_kafka]
 [oslo_messaging_notifications]
+driver = messagingv2
+topics = notifications
+
 [oslo_messaging_rabbit]
+kombu_reconnect_delay = 5.0
+# rabbit_host = {{control_node_name}} ## deprecated Replaced by [DEFAULT]/transport_url
+# rabbit_port = 5672 ## deprecated Replaced by [DEFAULT]/transport_url
+# rabbit_userid = openstack ## deprecated Replaced by [DEFAULT]/transport_url
+# rabbit_password = {{RABBIT_PASS}} ## deprecated Replaced by [DEFAULT]/transport_url
+# rabbit_virtual_host = /openstack ## deprecated Replaced by [DEFAULT]/transport_url
+
 [oslo_messaging_zmq]
 [polling]
 [publisher]
+##telemetry_secret=###
+
 [publisher_notifier]
 [rgw_admin_credentials]
 [rgw_client]
+
 
 [service_credentials]
 auth_url = http://{{control_node_name}}:5000

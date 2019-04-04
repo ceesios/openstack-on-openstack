@@ -221,37 +221,50 @@
     shell: ssh-keygen -b 2048 -t rsa -f /root/.ssh/id_rsa -q -N ""
     args:
       creates: /root/.ssh/id_rsa
-    tags: ceph
+    tags:
+    - ceph
+    - ssh-keys
+
+  - name: register privkey
+    slurp:
+      src: /root/.ssh/id_rsa
+    register: privkey
+    tags:
+    - ceph
+    - ssh-keys
 
   - name: register pubkey
     slurp:
       src: /root/.ssh/id_rsa.pub
     register: pubkey
-    tags: ceph
-
-- hosts: compute, ceph-*
-  tasks:
-  - name: Set authorized key taken from file for ceph-deploy
-    authorized_key:
-      user: root
-      state: present
-      key: "{{ hostvars[item]['pubkey']['content']|b64decode }}"
-    tags: ceph
-    with_items: '{{control_node_ip}}'
-
-  - name: Set authorized key taken from file for ceph-deploy
-    authorized_key:
-      user: ubuntu
-      state: present
-      key: "{{ hostvars[item]['pubkey']['content']|b64decode }}"
-    tags: ceph
-    with_items: '{{control_node_ip}}'
+    tags:
+    - ceph
+    - ssh-keys
 
 #######################################################################
 ## Ceph
 #######################################################################
 - hosts: type_openstack_compute_instance_v2
   tasks:
+  - name: distribute ssh keys
+    block:
+    - name: Set authorized key taken from file for ceph-deploy
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ hostvars[item]['pubkey']['content']|b64decode }}"
+      with_items: '{{control_node_ip}}'
+
+    - name: Set authorized key taken from file for ceph-deploy
+      authorized_key:
+        user: ubuntu
+        state: present
+        key: "{{ hostvars[item]['pubkey']['content']|b64decode }}"
+      with_items: '{{control_node_ip}}'
+    tags:
+    - ceph
+    - ssh-keys
+
 # http://docs.ceph.com/docs/mimic/install/manual-deployment/
   - name: create ceph config on all nodes
     block:
@@ -467,10 +480,10 @@
     register: cephdeploysh
 
 #http://docs.ceph.com/docs/master/rados/operations/add-or-rm-osds/?highlight=osd
-  - name: zap OSDs and create pools
-    shell: /root/ceph-deploy.sh | tee /root/ceph-deploy.log
-    tags: ceph
-    when: cephdeploysh.changed
+  # - name: zap OSDs and create pools
+  #   shell: /root/ceph-deploy.sh | tee /root/ceph-deploy.log
+  #   tags: ceph
+  #   when: cephdeploysh.changed
 
 
 #######################################################################
@@ -930,6 +943,16 @@
           - restart-cinder-volume
           - restart-cinder-backup
 
+      - name: create cinder stats cronjob
+        cron:
+          name="check dirs"
+          minute="*/5"
+          hour="*"
+          job="/usr/bin/cinder-volume-usage-audit --send_actions"
+        notify: 
+          - restart-cinder-scheduler
+          - restart-apache2
+
       - name: count cinder tables
         shell: |
           mysql -e "SELECT COUNT(*) FROM information_schema.tables \
@@ -1075,14 +1098,10 @@
 #  Y888P  VP   V8P  `Y88P'   `Y88P'  `Y88P' YP   YP Y888888P 
 #
 ## Gnocchi
+#######################################################################
 
 - hosts: gnocchi-api
   tasks:
-## pakages
-  # - name: install gnocchi packages
-  #   apt:  pkg={{packages}} state=present update_cache=yes
-  #   tags: gnocchi
-
   - name: chown /var/lib/gnocchi directory
     file:
       path: /var/lib/gnocchi/tmp
@@ -1090,7 +1109,6 @@
       owner: gnocchi
       group: gnocchi
       mode: 0775
-
   
   - name: configure gnocchi
     template:
@@ -1099,10 +1117,9 @@
       backup=yes
     with_items:
       - gnocchi/gnocchi.conf
+      - gnocchi/gnocchi_resources.yaml
     notify: 
       - init-gnocchi
-      # - restart-gnocchi-api
-      - restart-gnocchi-metricd
       - restart-apache2
     tags: gnocchi
 
@@ -1111,11 +1128,35 @@
     service: name=apache2 state=restarted
   - name: init-gnocchi
     shell: gnocchi-upgrade
-  # - name: restart-gnocchi-api
-  #   service: name="gnocchi-api" state=restarted
+  
+- hosts: gnocchi-metricd
+  tasks:
+  - name: chown /var/lib/gnocchi directory
+    file:
+      path: /var/lib/gnocchi/tmp
+      state: directory
+      owner: gnocchi
+      group: gnocchi
+      mode: 0775
+  
+  - name: configure gnocchi
+    template:
+      src=files/{{item}}.j2
+      dest=/etc/{{item}}
+      backup=yes
+    with_items:
+      - gnocchi/gnocchi.conf
+      - gnocchi/gnocchi_resources.yaml
+    notify: 
+      - init-gnocchi
+      - restart-gnocchi-metricd
+    tags: gnocchi
+
+  handlers:
+  - name: init-gnocchi
+    shell: gnocchi-upgrade
   - name: restart-gnocchi-metricd
     service: name="gnocchi-metricd" state=restarted
-
 
 #######################################################################
 #  .o88b. d88888b d888888b db       .d88b.  .88b  d88. d88888b d888888b d88888b d8888b.
@@ -1137,6 +1178,8 @@
     with_items:
       - ceilometer/ceilometer.conf
       - ceilometer/pipeline.yaml
+      - ceilometer/event_definitions.yaml
+      - ceilometer/event_pipeline.yaml
     notify: 
       - init-ceilometer
       - restart-ceilometer-agent-central
@@ -1172,10 +1215,34 @@
 
 - hosts: compute
   tasks:
-## pakages
-  # - name: install copute-node packages
-  #   apt:  pkg={{packages}} state=present update_cache=yes
-  #   tags: compute-node
+  - name: distribute ssh keys
+    block:
+    - name: Set authorized key taken from file for ceph-deploy
+      authorized_key:
+        user: nova
+        state: present
+        key: "{{ hostvars[item]['pubkey']['content']|b64decode }}"
+      with_items: '{{control_node_ip}}'
+
+    - name: create nova home
+      file:
+        path: /var/lib/nova/.ssh
+        state: directory
+        owner: nova
+        group: nova
+        mode: 0700
+    
+    - name: Set privkey taken from file on ceph-deploy
+      copy:
+        dest: /var/lib/nova/.ssh/id_rsa
+        owner: nova
+        group: nova
+        mode: 0700
+        checksum: false
+        content: "{{ hostvars[item]['privkey']['content']|b64decode }}"
+      with_items: '{{control_node_ip}}'
+    tags:
+    - ssh-keys
 
 ## Configure ceilometer
   - name: configure ceilometer
@@ -1185,9 +1252,9 @@
       backup=yes
     with_items:
       - ceilometer/ceilometer.conf
+#      - ceilometer/compute_pipeline.yaml
     notify: 
       - restart-ceilometer-agent-compute
-      # - restart-ceilometer-agent-ipmi
       - restart-nova-compute
     tags:
       - ceilometer
@@ -1351,6 +1418,7 @@
       openstack image list
       openstack endpoint list --sort-column "Service Name" \
        --sort-column "Interface"
+      echo "rabbitmq_management http://81.4.84.46:15672"
     register: show_result
     tags: 
       - show_result

@@ -1,13 +1,103 @@
 [DEFAULT]
+# Enables or disables logging values of all registered options when starting a
+# service (at DEBUG level). (boolean value)
+# Note: This option can be changed without restarting.
+#log_options = true
+
+# Specify a timeout after which a gracefully shutdown server will exit. Zero
+# value means endless wait. (integer value)
+# Note: This option can be changed without restarting.
+#graceful_shutdown_timeout = 60
+
+# If set to true, the logging level will be set to DEBUG. (boolean value)
+#debug = false
+
+# If set to true, the logging level will be set to INFO. (boolean value)
+#verbose = true
+
+# Coordination driver URL (string value)
+coordination_url = ${storage.redis_url}
+
+# Number of threads to use to parallelize some operations. Default is set to
+# the number of CPU available. (integer value)
+# Minimum value: 1
+# Deprecated group/name - [storage]/aggregation_workers_number
+#parallel_operations = <None>
+
+
 [api]
 auth_mode = keystone
 
+# The maximum number of items returned in a single response from a collection
+# resource (integer value)
+#max_limit = 1000
+
+# Number of seconds before timeout when attempting to do some operations.
+# (integer value)
+# Minimum value: 0
+# Deprecated group/name - [api]/refresh_timeout
+#operation_timeout = 10
+
+# Host to listen on (host address value)
+#host = 0.0.0.0
+
+# Port to listen on (port value)
+#port = 8041
+
+# Socket type to use for uWSGI:
+# * http: support HTTP/1.1 and keepalive,
+#   but not chunked encoding (InfluxDB)
+# * http-socket/socket: support chunked encoding, but require a upstream HTTP
+#   Server for HTTP/1.1, keepalive and HTTP protocol correctness.
+#  (string value)
+# Possible values:
+# http - <No description provided>
+# http-socket - <No description provided>
+# socket - <No description provided>
+#uwsgi_mode = http
+
 [archive_policy]
+# Default aggregation methods to use in created archive policies (list value)
+#default_aggregation_methods = mean,min,max,sum,std,count
+
 [cors]
 [healthcheck]
 [incoming]
+# Storage driver to use (string value)
+driver = redis
+
+# Ceph pool name to use. (string value)
+#ceph_pool = ${storage.ceph_pool}
+
+# Ceph username (ie: admin without "client." prefix). (string value)
+#ceph_username = ${storage.ceph_username}
+
+# Ceph key (string value)
+#ceph_secret = ${storage.ceph_secret}
+
+# Ceph keyring path. (string value)
+#ceph_keyring = ${storage.ceph_keyring}
+
+# Ceph connection timeout in seconds (string value)
+#ceph_timeout = ${storage.ceph_timeout}
+
+# Ceph configuration file. (string value)
+#ceph_conffile = ${storage.ceph_conffile}
+
+# Path used to store gnocchi data files. (string value)
+#file_basepath = ${storage.file_basepath}
+
+# if > 0, this create a subdirectory for every N bytesof the metric uuid
+# (integer value)
+# Minimum value: 0
+# Maximum value: 32
+#file_subdir_len = ${storage.file_subdir_len}
+
+redis_url = ${storage.redis_url}
+
 
 [indexer]
+# Indexer driver to use (string value)
 url = mysql+pymysql://gnocchi:{{DATABASE_PASS}}@{{control_node_name}}/gnocchi
 
 [keystone_authtoken]
@@ -22,13 +112,90 @@ username = gnocchi
 password = {{GNOCCHI_PASS}}
 
 [metricd]
+# Metricd is the daemon responsible for processing measures, computing their
+# aggregates and storing them into the aggregate storage. It also handles a
+# few other cleanup tasks, such as deleting metrics marked for deletion.
+# In order to process new measures, metricd checks the incoming storage for
+# new measures from time to time. 
+
+# Number of workers for Gnocchi metric daemons. By default the available number
+# of CPU is used. (integer value)
+# Minimum value: 1
+#workers = <None>
+
+# How many seconds to wait between scheduling new metrics to process (integer
+# value)
+#metric_processing_delay = 60
+
+# Allow to bypass `metric_processing_delay` if metricd is notified that
+# measures are ready to be processed. (boolean value)
+#greedy = true
+
+# How many seconds to wait between metric ingestion reporting. Set value to -1
+# to disable reporting (integer value)
+# Minimum value: -1
+#metric_reporting_delay = 120
+
+# How many seconds to wait between cleaning of expired data (integer value)
+#metric_cleanup_delay = 300
+
+# Number of workers that share a task. A higher value may improve worker
+# utilization but may also increase load on coordination backend. Value is
+# capped by number of workers globally. (integer value)
+# Minimum value: 1
+#processing_replicas = 3
+
 [oslo_middleware]
 [oslo_policy]
 [statsd]
+# The listen IP for statsd (host address value)
+#host = 0.0.0.0
+
+# The port for statsd (port value)
+#port = 8125
+
+# Resource UUID to use to identify statsd in Gnocchi (unknown value)
+#resource_id = <None>
+
+# Creator value to use to identify statsd in Gnocchi (string value)
+#creator = <None>
+
+# Archive policy name to use when creating metrics (string value)
+#archive_policy_name = <None>
+
+# Delay between flushes (floating point value)
+#flush_delay = 10
 
 [storage]
-# coordination_url is not required but specifying one will improve
-# performance with better workload division across workers.
-coordination_url = redis://{{control_node_name}}:6379
-file_basepath = /var/lib/gnocchi
-driver = file
+# Storage driver to use (string value)
+driver = ceph
+
+# Ceph pool name to use. (string value)
+ceph_pool = gnocchi
+
+# Ceph username (ie: admin without "client." prefix). (string value)
+ceph_username = gnocchi
+
+# Ceph key (string value)
+ceph_secret = AQAg85Bcphd0AxAAcGuX1vpLNnxTemTctA3sJg==
+
+# Ceph keyring path. (string value)
+#ceph_keyring = <None>
+
+# Ceph connection timeout in seconds (string value)
+#ceph_timeout = 30
+
+# Ceph configuration file. (string value)
+ceph_conffile = /etc/ceph/ceph.conf
+
+# Path used to store gnocchi data files. (string value)
+#file_basepath = /var/lib/gnocchi
+
+# if > 0, this create a subdirectory for every N bytesof the metric uuid
+# (integer value)
+# Minimum value: 0
+# Maximum value: 32
+#file_subdir_len = 2
+
+redis_url = redis://{{control_node_name}}:6379
+

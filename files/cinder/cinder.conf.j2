@@ -23,6 +23,8 @@ backup_ceph_stripe_unit = 0
 backup_ceph_stripe_count = 0
 restore_discard_excess_bytes = true
 
+[oslo_messaging_notifications]
+driver = messagingv2
 
 [database]
 connection = mysql+pymysql://cinder:{{DATABASE_PASS}}@{{control_node_name}}/cinder
