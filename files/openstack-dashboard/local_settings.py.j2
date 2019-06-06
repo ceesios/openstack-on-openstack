@@ -311,7 +311,7 @@ OPENSTACK_HYPERVISOR_FEATURES = {
 # The OPENSTACK_CINDER_FEATURES settings can be used to enable optional
 # services provided by cinder that is not exposed by its extension API.
 OPENSTACK_CINDER_FEATURES = {
-    'enable_backup': False,
+    'enable_backup': True,
 }
 
 # The OPENSTACK_NEUTRON_NETWORK settings can be used to enable optional
@@ -321,8 +321,8 @@ OPENSTACK_NEUTRON_NETWORK = {
     'enable_router': True,
     'enable_quotas': True,
     'enable_ipv6': True,
-    'enable_distributed_router': False,
-    'enable_ha_router': False,
+    'enable_distributed_router': True,
+    'enable_ha_router': True,
     'enable_fip_topology_check': True,
 
     # Default dns servers you would like to use when a subnet is

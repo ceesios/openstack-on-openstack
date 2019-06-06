@@ -49,4 +49,13 @@ driver = messagingv2
 [oslo_middleware]
 [oslo_policy]
 [quotas]
+# number of networks allowed per tenant, and minus means unlimited
+quota_network = 999
+quota_subnet = 999
+quota_port = 999
+security_group = 999
+
+# default driver to use for quota checks
+quota_driver = neutron.quota.ConfDriver
+
 [ssl]

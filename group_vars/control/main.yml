@@ -17,6 +17,8 @@ packages:
   - glance
   - haproxy
   - libapache2-mod-wsgi
+  - magnum-api
+  - magnum-conductor
   - mariadb-server
   - memcached
   - neutron-dhcp-agent
@@ -33,14 +35,28 @@ packages:
   - openstack-dashboard
   - phpmyadmin
   - python-gnocchiclient
+  - python-magnumclient
   - python-memcache
   - python-pymysql
   - rabbitmq-server
   - redis
+  - heat-api
+  - heat-api-cfn
+  - heat-engine
+  - gettext
+#  - python3-heat-dashboard
+#  - python3-neutron-fwaas-dashboard
+#  - python3-neutron-lbaas-dashboard
+#  - python3-octavia-dashboard
+#  - python3-trove-dashboard
 
 
   # - nova-spiceproxy
   # - spice-html5
+
+# https://docs.openstack.org/heat-dashboard/latest/install/index.html
+# cp /usr/lib/python3/dist-packages/heat_dashboard/enabled/_[1-9]*.py /usr/share/openstack-dashboard/openstack_dashboard/local/enabled/
+# root@os-lab-control:/usr/share/openstack-dashboard# DJANGO_SETTINGS_MODULE=openstack_dashboard.settings python3 manage.py compress --force
 
 
 mysql_databases:
@@ -53,19 +69,84 @@ mysql_databases:
   - neutron
   - gnocchi
   - cinder
+  - magnum
+  - heat
 
 
 keystone_domains:
   example: "An Example Domain"
-
+  magnum: "Owns users and projects created by magnum" 
+  heat: "Stack projects and users" 
 
 keystone_projects:
   service: "Service Project"
   myproject: "Demo Project"
 
+keystone_users:
+  demo:
+    pass: '{{DEMO_PASS}}'
+    project: myproject
+    role: member
+  # demo:
+  #   pass: '{{DEMO_PASS}}'
+  #   project: myproject
+  #   role: heat_stack_owner
+  myuser:
+    pass: '{{MYUSER_PASS}}'
+    project: myproject
+    role: myrole
+  glance:
+    pass: '{{GLANCE_PASS}}'
+    project: service
+    role: admin
+  nova:
+    pass: '{{NOVA_PASS}}'
+    project: service
+    role: admin
+  placement:
+    pass: '{{PLACEMENT_PASS}}'
+    project: service
+    role: admin
+  neutron:
+    pass: '{{NEUTRON_PASS}}'
+    project: service
+    role: admin
+  cinder:
+    pass: '{{CINDER_PASS}}'
+    project: service
+    role: admin
+  ceilometer:
+    pass: '{{ CEILOMETER_PASS }}'
+    project: service
+    role: admin
+  gnocchi:
+    pass: '{{GNOCCHI_PASS}}'
+    project: service
+    role: admin
+  magnum:
+    pass: '{{MAGNUM_PASS}}'
+    project: service
+    role: admin
+  heat:
+    pass: '{{HEAT_PASS}}'
+    project: service
+    role: admin
+
+keystone_domain_users:
+  magnum_domain_admin:
+    pass: '{{MAGNUM_PASS}}'
+    role: admin
+    domain: "{{ MAGNUM_DOMAIN_ID | default('magnum')}}"
+  heat_domain_admin:
+    pass: '{{HEAT_PASS}}'
+    role: admin
+    domain: "{{ HEAT_DOMAIN_ID | default('heat')}}"
 
 keystone_roles:
   - myrole
+  - heat_stack_owner
+  - heat_stack_user
+  - heat_stack_owner
 
 
 keystone_services:
@@ -90,6 +171,15 @@ keystone_services:
   cinderv3:
     type: volumev3
     description: "OpenStack Block Storage" 
+  magnum:
+    type: container-infra
+    description: "OpenStack Container Infrastructure Management Service" 
+  heat:
+    type: orchestration
+    description: "Orchestration" 
+  heat-cfn:
+    type: cloudformation
+    description: "Orchestration" 
 
 
 keystone_endpoints:
@@ -184,40 +274,41 @@ keystone_endpoints:
     interface: admin 
     url: http://os-lab-control:8776/v3/$(project_id)s
 
-keystone_users:
-  demo:
-    pass: '{{DEMO_PASS}}'
-    project: myproject
-    role: member
-  myuser:
-    pass: '{{MYUSER_PASS}}'
-    project: myproject
-    role: myrole
-  glance:
-    pass: '{{GLANCE_PASS}}'
-    project: service
-    role: admin
-  nova:
-    pass: '{{NOVA_PASS}}'
-    project: service
-    role: admin
-  placement:
-    pass: '{{PLACEMENT_PASS}}'
-    project: service
-    role: admin
-  neutron:
-    pass: '{{NEUTRON_PASS}}'
-    project: service
-    role: admin
-  cinder:
-    pass: '{{CINDER_PASS}}'
-    project: service
-    role: admin
-  ceilometer:
-    pass: '{{ CEILOMETER_PASS }}'
-    project: service
-    role: admin
-  gnocchi:
-    pass: '{{GNOCCHI_PASS}}'
-    project: service
-    role: admin
+  - region: RegionOne
+    service: magnum
+    interface: public 
+    url: http://{{control_node_ip_remote}}:9511/v1
+  - region: RegionOne
+    service: magnum
+    interface: internal 
+    url: http://os-lab-control:9511/v1
+  - region: RegionOne
+    service: magnum
+    interface: admin 
+    url: http://os-lab-control:9511/v1
+
+  - region: RegionOne
+    service: heat
+    interface: public 
+    url: http://{{control_node_ip_remote}}:8004/v1/%(tenant_id)s
+  - region: RegionOne
+    service: heat
+    interface: internal 
+    url: http://os-lab-control:8004/v1/%(tenant_id)s
+  - region: RegionOne
+    service: heat
+    interface: admin 
+    url: http://os-lab-control:8004/v1/%(tenant_id)s
+
+  - region: RegionOne
+    service: heat-cfn
+    interface: public 
+    url: http://{{control_node_ip_remote}}:8000/v1
+  - region: RegionOne
+    service: heat-cfn
+    interface: internal 
+    url: http://os-lab-control:8000/v1
+  - region: RegionOne
+    service: heat-cfn
+    interface: admin 
+    url: http://os-lab-control:8000/v1

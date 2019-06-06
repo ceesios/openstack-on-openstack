@@ -1,0 +1,140 @@
+[DEFAULT]
+pybasedir = /usr/lib/python2.7/dist-packages/magnum
+bindir = /usr/bin
+state_path = /var/lib/magnum
+transport_url = rabbit://openstack:{{RABBIT_PASS}}@{{control_node_name}}
+my_ip = {{access_ip_v4}}
+
+[api]
+auth_strategy = keystone
+host = 0.0.0.0
+
+[barbican_client]
+region_name = RegionOne
+
+[certificates]
+#cert_manager_type = barbican
+cert_manager_type = x509keypair
+
+[cinder]
+
+
+[cinder_client]
+region_name = RegionOne
+
+
+[cluster]
+
+
+[cluster_heat]
+
+
+[cluster_template]
+
+
+[conductor]
+
+
+[cors]
+
+
+[database]
+connection = mysql+pymysql://magnum:{{DATABASE_PASS}}@{{control_node_name}}/magnum
+
+
+[docker]
+
+
+[docker_registry]
+region_name = RegionOne
+
+
+[drivers]
+
+
+[glance_client]
+region_name = RegionOne
+
+
+[heat_client]
+region_name = RegionOne
+
+
+[keystone_auth]
+
+
+[keystone_authtoken]
+auth_url = http://{{control_node_name}}:35357
+memcached_servers = {{control_node_name}}:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = magnum
+password = {{MAGNUM_PASS}}
+
+auth_uri = http://os-lab-control:5000/v3
+# www_authenticate_uri = http://{{control_node_ip_remote}}:5000
+# https://bugs.launchpad.net/ubuntu/+source/magnum/+bug/1793813
+admin_user = magnum
+admin_password = {{MAGNUM_PASS}}
+admin_tenant_name = service
+region_name = RegionOne
+
+[magnum_client]
+region_name = RegionOne
+
+
+[matchmaker_redis]
+
+
+[neutron_client]
+region_name = RegionOne
+
+
+[nova_client]
+region_name = RegionOne
+
+
+[oslo_concurrency]
+lock_path = /var/lock/magnum
+
+
+[oslo_messaging_amqp]
+
+
+[oslo_messaging_kafka]
+
+
+[oslo_messaging_notifications]
+driver = messagingv2
+
+
+[oslo_messaging_rabbit]
+
+
+[oslo_messaging_zmq]
+
+
+[oslo_policy]
+
+
+[profiler]
+
+
+[quotas]
+
+
+[trust]
+trustee_domain_name = magnum
+trustee_domain_admin_name = magnum_domain_admin
+trustee_domain_admin_password = {{MAGNUM_PASS}}
+trustee_keystone_interface = public
+
+[x509]
+
+
+
+
+
+

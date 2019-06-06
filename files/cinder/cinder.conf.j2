@@ -12,6 +12,8 @@ lock_path = /var/lock/cinder/tmp
 transport_url = rabbit://openstack:{{RABBIT_PASS}}@{{control_node_name}}
 my_ip = {{access_ip_v4}}
 
+enable_v3_api=true
+
 enabled_backends = ceph
 
 backup_driver = cinder.backup.drivers.ceph
@@ -31,7 +33,8 @@ connection = mysql+pymysql://cinder:{{DATABASE_PASS}}@{{control_node_name}}/cind
 
 
 [keystone_authtoken]
-auth_url = http://{{control_node_name}}:5000
+www_authenticate_uri = http://{{control_node_ip_remote}}:5000
+auth_url = http://{{control_node_name}}:35357
 memcached_servers = {{control_node_name}}:11211
 auth_type = password
 project_domain_name = Default
@@ -39,7 +42,7 @@ user_domain_name = Default
 project_name = service
 username = cinder
 password = {{CINDER_PASS}}
-
+service_token_roles_required = true
 
 [ceph]
 volume_driver = cinder.volume.drivers.rbd.RBDDriver

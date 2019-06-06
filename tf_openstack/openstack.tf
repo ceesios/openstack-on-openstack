@@ -32,6 +32,12 @@ provider "openstack" {
       cidr        = "0.0.0.0/0"
     }
     rule {
+      from_port   = 5000
+      to_port     = 5000
+      ip_protocol = "tcp"
+      cidr        = "0.0.0.0/0"
+    }
+    rule {
       from_port   = 6080
       to_port     = 6080
       ip_protocol = "tcp"
@@ -212,7 +218,7 @@ provider "openstack" {
     name              = "${var.clustername}-C1${element(var.nodenames, count.index % length(var.nodenames))}"
     availability_zone = "${element(var.azs, count.index % length(var.azs))}"
     image_name        = "${var.image_name}"
-    flavor_id         = "${var.flavor_id}" 
+    flavor_id         = "${var.medium_flavor_id}" 
     key_pair          = "${var.key_pair}"
 #    user_data         = "${file("common_user_data.sh")}"
     depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
@@ -252,7 +258,7 @@ provider "openstack" {
     name              = "${var.clustername}-GN-API${element(var.nodenames, count.index % length(var.nodenames))}"
     availability_zone = "${element(var.azs, count.index % length(var.azs))}"
     image_name        = "${var.image_name}"
-    flavor_id         = "${var.medium_flavor_id}" 
+    flavor_id         = "${var.small_flavor_id}" 
     key_pair          = "${var.key_pair}"
     security_groups   = ["${var.security_groups}"]
     depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
@@ -282,7 +288,7 @@ provider "openstack" {
     name              = "${var.clustername}-GN-metricd${element(var.nodenames, count.index % length(var.nodenames))}"
     availability_zone = "${element(var.azs, count.index % length(var.azs))}"
     image_name        = "${var.image_name}"
-    flavor_id         = "${var.medium_flavor_id}" 
+    flavor_id         = "${var.small_flavor_id}" 
     key_pair          = "${var.key_pair}"
     security_groups   = ["${var.security_groups}"]
     depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
@@ -314,7 +320,7 @@ provider "openstack" {
     name              = "${var.clustername}-mon-${element(var.nodenames, count.index % length(var.nodenames))}"
     availability_zone = "${element(var.azs, count.index % length(var.azs))}"
     image_name        = "${var.image_name}"
-    flavor_id         = "${var.medium_flavor_id}" 
+    flavor_id         = "${var.flavor_id}" 
     key_pair          = "${var.key_pair}"
     security_groups   = ["${var.security_groups}"]
     depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]
@@ -372,7 +378,7 @@ provider "openstack" {
     name              = "${var.clustername}-s1-${element(var.nodenames, count.index % length(var.nodenames))}"
     availability_zone = "${element(var.azs, count.index % length(var.azs))}"
     image_name        = "${var.image_name}"
-    flavor_id         = "${var.medium_flavor_id}" 
+    flavor_id         = "${var.flavor_id}" 
     key_pair          = "${var.key_pair}"
     security_groups   = ["${var.security_groups}"]
     depends_on        = ["openstack_compute_floatingip_associate_v2.fip_control"]

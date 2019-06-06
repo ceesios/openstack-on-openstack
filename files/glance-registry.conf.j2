@@ -6,7 +6,7 @@ connection = mysql+pymysql://glance:{{DATABASE_PASS}}@{{access_ip_v4}}/glance
 backend = sqlalchemy
 
 [keystone_authtoken]
-www_authenticate_uri = http://{{control_node_name}}:5000
+www_authenticate_uri = http://{{control_node_ip_remote}}:5000
 auth_url = http://{{control_node_name}}:5000
 memcached_servers = {{control_node_name}}:11211
 auth_type = password

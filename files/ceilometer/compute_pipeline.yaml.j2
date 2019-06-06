@@ -1,0 +1,16 @@
+---
+
+sources:
+  - name: meter_source
+    interval: 10
+    meters:
+      - "*"
+    sinks:
+      - bill_sink
+
+sinks:
+  - name: bill_sink
+    transformers:
+    publishers:
+      - gnocchi://?archive_policy=bill
+

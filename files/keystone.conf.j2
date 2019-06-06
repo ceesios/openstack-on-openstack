@@ -1,5 +1,6 @@
 [DEFAULT]
 log_dir = /var/log/keystone
+transport_url = rabbit://openstack:{{RABBIT_PASS}}@{{control_node_name}}
 
 [application_credential]
 [assignment]

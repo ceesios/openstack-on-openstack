@@ -1,98 +1,47 @@
 #!/bin/bash
 
-## This part is done by Ansible
-
-# if [ $2 = "clean" ] ; then
-#   echo "############### Cleanup ###############"
-#   ceph-deploy purge {% for grp in ['ceph-mon', 'ceph-s1', 'control'] %}{% for host in groups[grp] %}{{ hostvars[host]['ansible_hostname'] }} {% endfor %}{% endfor %}
-
-#   ceph-deploy purgedata {% for grp in ['ceph-mon', 'ceph-s1', 'control'] %}{% for host in groups[grp] %}{{ hostvars[host]['ansible_hostname'] }} {% endfor %}{% endfor %}
-  
-#   rm ceph.*
-# fi
-# if [ $1 = "new" ] ; then
-#   ceph-deploy forgetkeys
-# fi
-
-# echo "############### install ceph ###############"
-# {% for grp in ['ceph-mon', 'ceph-s1', 'control'] %}
-# {% for host in groups[grp] %}
-#   ceph-deploy install {{ hostvars[host]['ansible_hostname'] }}
-# {% endfor %}{% endfor %}
-# sleep 1
-
-# echo "############### Monitors ###############"
-# if [ $1 = "new" ] ; then
-# {% for host in groups['ceph-mon'] %}
-#   ceph-deploy new {{ hostvars[host]['ansible_hostname'] }}
-#   # Disable auth
-#   sed -i 's/cephx/none/g' ceph.conf
-#   ceph-deploy mon create {{ hostvars[host]['ansible_hostname'] }}
-#   ceph-deploy gatherkeys {{ hostvars[host]['ansible_hostname'] }}
-# {% endfor %}
-# fi
-# sleep 1
-
-# echo "############### deploy keyring (admin) ###############"
-# {% for grp in ['ceph-mon', 'ceph-s1', 'control'] %}
-# {% for host in groups[grp] %}
-#   ceph-deploy admin {{ hostvars[host]['ansible_hostname'] }}
-# {% endfor %}{% endfor %}
-# sleep 1
-
-# echo "############### Managers ###############"
-# {% for host in groups['control'] %}
-#   ceph-deploy mgr create {{ hostvars[host]['ansible_hostname'] }}
-# {% endfor %}
-# sleep 1
-
-
 ## This is disrtuptive!
 
 
 echo "############### OSDs ###############"
 {% for host in groups['ceph-s1'] %}
-  # cephdeployoutput=$(ceph-deploy disk list {{ hostvars[host]['ansible_hostname'] }} 2>&1)
-  # disklist=$(echo "$cephdeployoutput" | grep -v -e sr0 -e vda -e sda | egrep -o "/dev/..." | cut -d / -f3)
-  # for disk in $disklist; do
-  # if [ $1 = "new" ] ; then
-  #     echo {{ hostvars[host]['ansible_hostname'] }} 
-  #     echo "zapping $disk the new way"
-  #     ceph-deploy -q disk zap {{ hostvars[host]['ansible_hostname'] }} /dev/$disk
-  #     # echo "zapping $disk the old way"
-  #     # ceph-deploy -q disk zap {{ hostvars[host]['ansible_hostname'] }}:$disk
-  #   fi
-  #   echo "OSD create $disk"
-  #   ceph-deploy osd create --data /dev/$disk {{ hostvars[host]['ansible_hostname'] }}
-  #   ssh {{ hostvars[host]['ansible_hostname'] }} ":$disk"
-  # done
-
+  ssh {{ hostvars[host]['ansible_hostname'] }} "
   for disk in $(blkid | grep -v -e /dev/vda -e /dev/sda -e /dev/sr0 | grep -v LVM2 | egrep -o "/dev/..."); do
     ceph-volume lvm zap $disk --destroy
     ceph-volume lvm create --data $disk
   done
+  "
+sleep 1
+ssh {{ hostvars[host]['ansible_hostname'] }} "ceph-volume lvm list | grep osd"
 {% endfor %}
+
+
+
+pools=(volumes images backups vms)
+for pool in "${pools[@]}"
+do
+  if ! ceph osd pool get $pool size > /dev/null 2>&1; then
+    ceph osd pool create $pool 50
+    rbd pool init $pool
+  else
+    echo "pool $pool exists"
+  fi
+done
+
+
+pools=(gnocchi)
+for pool in "${pools[@]}"
+do
+  if ! ceph osd pool get $pool size > /dev/null 2>&1; then
+    ceph osd pool create $pool 8 8 
+    rbd pool init $pool
+    ceph auth get-or-create client.gnocchi mon "allow r" osd "allow rwx pool=$pool"
+  else
+    echo "pool $pool exists"
+  fi
+done
+
 sleep 1
 
-
-# MDSs
-# ceph-deploy mds create {host-name}[:{daemon-name}] [{host-name}[:{daemon-name}] ...]
-
-#ceph-deploy --overwrite-conf config push os-lab-{mon,s1}-{a,b,c}1 os-lab-c1{a,b,c}1 os-lab-control
-
-# http://docs.ceph.com/docs/master/rbd/rbd-openstack/
-
-ceph osd pool create volumes 50
-ceph osd pool create images 50
-ceph osd pool create backups 50
-ceph osd pool create vms 50
-ceph osd pool create gnocchi 8 8
 ceph -s
 
-rbd pool init volumes
-rbd pool init images
-rbd pool init backups
-rbd pool init vms
-rbd pool init gnocchi
-
-ceph auth get-or-create client.gnocchi mon "allow r" osd "allow rwx pool=gnocchi"

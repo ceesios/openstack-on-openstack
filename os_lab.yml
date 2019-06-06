@@ -7,6 +7,8 @@
 ## Run as
 ## TF_STATE=./tf_openstack/terraform.tfstate ansible-playbook os_lab.yml"
 ## When using a vault add: "--ask-vault-pass"
+##
+## ASCII genereted with  pyfiglet -f basic "name"
 
 ---
 
@@ -52,6 +54,19 @@
       - firstrun
       - hostsfile
 
+  - name: "fix slow ssh on ubuntu"
+    lineinfile: 
+      dest=/etc/pam.d/common-session
+      regexp='.*session.*optional.*pam_systemd.so' 
+      line='#session optional        pam_systemd.so'
+      insertbefore='# end of pam-auth-update config'
+      firstmatch=yes
+      state=present
+    tags: 
+      - firstrun
+      - pam-fix
+    notify: restart-sshd
+
   - name: apt repositories and packages
     block:
       - name: add apt keys
@@ -80,6 +95,12 @@
         tags: 
           - add-apt-repository
           - ceph
+
+      # - name: enable auto-updates and reboot since this is for testing
+      #   copy:
+      #     src: 50unattended-upgrades
+      #     dest: /etc/apt/apt.conf.d/50unattended-upgrades
+      #   tags: auto-updates
 
       - name: dist-upgrade
         apt:
@@ -196,6 +217,8 @@
   handlers:
   - name: restart-chrony
     service: name=chrony state=restarted
+  - name: restart-sshd
+    service: name=sshd state=restarted
 
 #######################################################################
 #  .o88b. d88888b d8888b. db   db 
@@ -476,14 +499,13 @@
       mode=0740
       owner=root
       group=root
-    tags: ceph
+    tags: ceph-deploy
     register: cephdeploysh
 
-#http://docs.ceph.com/docs/master/rados/operations/add-or-rm-osds/?highlight=osd
-  # - name: zap OSDs and create pools
-  #   shell: /root/ceph-deploy.sh | tee /root/ceph-deploy.log
-  #   tags: ceph
-  #   when: cephdeploysh.changed
+  - name: zap OSDs and create pools
+    shell: /root/ceph-deploy.sh | tee /root/ceph-deploy.log
+    tags: ceph
+    when: cephdeploysh.changed
 
 
 #######################################################################
@@ -539,7 +561,13 @@
       validate='haproxy -c -f %s'
     notify: reload-haproxy
     tags: haproxy
+    register: haproxyconfig
 
+  - name: restart haproxy before next steps
+    service: 
+      name=haproxy 
+      state=restarted
+    when: haproxyconfig.changed
 
 ## MySQL
   - name: template 99-openstack.cnf
@@ -665,6 +693,16 @@
       backup=yes
     notify: restart-etcd
 
+## PHPMyAdmin
+  - name: enable phpmyadmin
+    file:
+      src=/etc/phpmyadmin/apache.conf
+      dest=/etc/apache2/sites-enabled/phpmyadmin.conf
+      state=link
+    notify: 
+      - restart-apache2
+    tags: phpmyadmin
+
 #######################################################################
 # db   dD d88888b db    db .d8888. d888888b  .d88b.  d8b   db d88888b 
 # 88 ,8P' 88'     `8b  d8' 88'  YP `~~88~~' .8P  Y8. 888o  88 88'     
@@ -756,7 +794,7 @@
           cloud: "{{ooo}}"
           name: "{{item.key}}"
           description: "{{item.value}}"
-          domain_id: default
+          domain_id: "{{item.value.domain|default('default')}}"
         with_dict: "{{keystone_projects}}"
 
       - name: add roles to keystone
@@ -771,7 +809,7 @@
           name: "{{item.key}}"
           password: "{{item.value.pass}}"
           update_password: on_create
-          domain: default
+          domain: "{{item.value.domain|default('default')}}"
         with_dict: "{{keystone_users}}"
 
       - name: assign roles to users in keystone
@@ -781,6 +819,26 @@
           role: "{{item.value.role}}"
           project: "{{item.value.project}}"
         with_dict: "{{keystone_users}}"
+
+      - name: add domain users to keystone
+        os_user: 
+          cloud: "{{ooo}}"
+          name: "{{item.key}}"
+          password: "{{item.value.pass}}"
+          update_password: on_create
+          domain: "{{item.value.domain|default('default')}}"
+        with_dict: "{{keystone_domain_users}}"
+
+      - name: assign roles to domain users in keystone
+        os_user_role: 
+          cloud: "{{ooo}}"
+          user: "{{item.key}}"
+          role: "{{item.value.role}}"
+          domain: "{{item.value.domain}}"
+        with_dict: "{{keystone_domain_users}}"
+        ##fails when magnum domain id is not set so ignore errors
+        ignore_errors: yes
+
     tags: 
     - keystone
     - keystone_users
@@ -806,6 +864,95 @@
     tags: 
     - keystone
     - keystone_services
+
+  - name: configure Keystone
+    template:
+      src=files/apache2/sites-available/keystone.conf.j2
+      dest=/etc/apache2/sites-available/keystone.conf
+      backup=yes
+    notify: 
+      - restart-apache2
+
+
+
+#######################################################################
+# db   db d88888b  .d8b.  d888888b 
+# 88   88 88'     d8' `8b `~~88~~' 
+# 88ooo88 88ooooo 88ooo88    88    
+# 88~~~88 88~~~~~ 88~~~88    88    
+# 88   88 88.     88   88    88    
+# YP   YP Y88888P YP   YP    YP    
+#
+## HEAT
+
+  - name: install heat
+    block:
+      - name: configure heat
+        template:
+          src=files/heat/{{item}}.j2
+          dest=/etc/heat/{{item}}
+          backup=yes
+        with_items:
+          - heat.conf
+        notify: 
+          - restart-heat-api
+          - restart-heat-api-cfn
+          - restart-heat-engine
+
+      - name: count heat tables
+        shell: |
+          mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+          WHERE table_schema = 'heat';" -B  -N
+        register: heattablecount
+
+      - name: Populate heat database
+        shell: su -s /bin/sh -c "heat-manage db_sync" heat
+        when: heattablecount.stdout|int < 10
+        notify: 
+          - restart-heat-api
+          - restart-heat-api-cfn
+          - restart-heat-engine
+    tags:
+      - heat
+
+
+#######################################################################
+# .88b  d88.  .d8b.   d888b  d8b   db db    db .88b  d88. 
+# 88'YbdP`88 d8' `8b 88' Y8b 888o  88 88    88 88'YbdP`88 
+# 88  88  88 88ooo88 88      88V8o 88 88    88 88  88  88 
+# 88  88  88 88~~~88 88  ooo 88 V8o88 88    88 88  88  88 
+# 88  88  88 88   88 88. ~8~ 88  V888 88b  d88 88  88  88 6
+# YP  YP  YP YP   YP  Y888P  VP   V8P ~Y8888P' YP  YP  YP 
+#
+## MAGNUM 
+
+  - name: install magnum
+    block:
+      - name: configure magnum
+        template:
+          src=files/magnum/{{item}}.j2
+          dest=/etc/magnum/{{item}}
+          backup=yes
+        with_items:
+          - magnum.conf
+        notify: 
+          - restart-magnum-api
+          - restart-magnum-conductor
+
+      - name: count magnum tables
+        shell: |
+          mysql -e "SELECT COUNT(*) FROM information_schema.tables \
+          WHERE table_schema = 'magnum';" -B  -N
+        register: magnumtablecount
+
+      - name: Populate magnum database
+        shell: su -s /bin/sh -c "magnum-db-manage upgrade" magnum
+        when: magnumtablecount.stdout|int < 5
+        notify: 
+          - restart-magnum-api
+          - restart-magnum-conductor
+    tags:
+      - magnum
 
 
 #######################################################################
@@ -846,7 +993,6 @@
           - restart-glance-registry
     tags:
       - glance
-      - firstrun
 
 
 #######################################################################
@@ -962,6 +1108,13 @@
       - name: Populate the cinder database
         shell: su -s /bin/sh -c "cinder-manage db sync" cinder
         when: cindertablecount.stdout|int < 10
+        register: cinderconfig
+
+      - name: reload cinder before next steps
+        service: 
+          name=cinder-volume
+          state=restarted
+        when: cinderconfig.changed
     tags: cinder
 
 
@@ -1041,9 +1194,13 @@
     notify: 
       - restart-apache2
 
-
-
   handlers:
+  - name: restart-heat-api
+    service: name=heat-api state=restarted
+  - name: restart-heat-api-cfn
+    service: name=heat-api-cfn state=restarted
+  - name: restart-heat-engine
+    service: name=heat-engine state=restarted
   - name: reload-haproxy
     service: name=haproxy state=reloaded
   - name: restart-mysql
@@ -1068,6 +1225,11 @@
     service: name=glance-registry state=restarted
   - name: restart-glance-api
     service: name=glance-api state=restarted
+
+  - name: restart-magnum-conductor
+    service: name=magnum-conductor state=restarted
+  - name: restart-magnum-api
+    service: name=magnum-api state=restarted
 
   - name: restart-nova-api
     service: name="nova-api" state=restarted
@@ -1355,7 +1517,7 @@
   - name: add flavor with salt and pepper
     shell: |
       . ~/adminrc && openstack flavor create --ram 512 --disk 10 \
-       --vcpus 1 --public tiny1 || true
+       --vcpus 1 --public m1.small || true
     tags:
       - flavor
 
@@ -1370,6 +1532,7 @@
 #      provider_segmentation_id:
       shared: true
       external: true
+      port_security_enabled: no
     tags: finalize
 
   - name: Create subnet-public
@@ -1436,6 +1599,8 @@
       - "myuser user pass= {{ MYUSER_PASS }}"
       - "demo user pass  = {{ DEMO_PASS }}"
       - "horizon url     = http://{{control_node_ip_remote}}/horizon"
+      - "haproxy stats   = http://{{control_node_ip_remote}}:8001/stats"
+      - "PHPMyAdmin      = http://{{control_node_ip_remote}}/phpmyadmin"
     tags: 
       - show_result
       - finalize
